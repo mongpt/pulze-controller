@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulze // Control</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="rack">
+
+  <header class="rack__header">
+    <div class="brand">
+      <span class="brand__mark">P</span>
+      <span class="brand__text">PULZE <span class="brand__thin">// CONTROL</span></span>
+    </div>
+    <div class="conn" id="conn">
+      <span class="led led--off" id="led"></span>
+      <span id="connText">not connected</span>
+    </div>
+  </header>
+
+  <section class="scan-panel">
+    <button id="connectBtn" class="btn btn--accent">Connect to amp</button>
+    <span class="hint" id="btHint"></span>
+  </section>
+
+  <section class="explore-panel">
+    <button id="prevBtn" class="btn">◀ Previous Tone</button>
+    <button id="nextBtn" class="btn">Next Tone ▶</button>
+  </section>
+
+  <main class="rack__body">
+
+    <section class="panel patches">
+      <h2 class="panel__title">Patches</h2>
+      <div class="patch-grid" id="patchList">
+        <p class="patch-list__empty" id="patchEmpty">No patches saved yet - capture one on the right.</p>
+      </div>
+    </section>
+
+    <aside class="panel capture">
+      <h2 class="panel__title">Capture</h2>
+
+      <div class="capture-status" id="captureStatus">
+        <span class="dot dot--off"></span>
+        <span>waiting for a tone change on the amp</span>
+      </div>
+
+      <div class="field">
+        <label for="nameInput">Patch name</label>
+        <input type="text" id="nameInput" placeholder="e.g. Tight Djent">
+      </div>
+
+      <div class="field">
+        <label for="slotSelect">Save to</label>
+        <select id="slotSelect"></select>
+      </div>
+
+      <button id="saveBtn" class="btn btn--accent">Save patch</button>
+
+      <div class="io-row">
+        <button id="exportBtn" class="btn btn--small">Export library</button>
+        <label class="btn btn--small btn--file">
+          Import library
+          <input type="file" id="importInput" accept="application/json" hidden>
+        </label>
+      </div>
+
+      <h2 class="panel__title panel__title--log">Log</h2>
+      <pre class="log" id="log"></pre>
+    </aside>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
