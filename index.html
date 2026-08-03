@@ -41,7 +41,10 @@
   <main class="rack__body">
 
     <section class="panel patches">
-      <h2 class="panel__title">Patches</h2>
+      <div class="panel__header">
+        <h2 class="panel__title">Patches</h2>
+        <button id="resetBtn" class="btn btn--small btn--outline">Reset to defaults</button>
+      </div>
       <div class="patch-grid" id="patchList">
         <p class="patch-list__empty" id="patchEmpty">No patches saved yet - capture one on the right.</p>
       </div>
