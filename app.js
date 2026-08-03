@@ -47,6 +47,8 @@ const nextBtn = document.getElementById("nextBtn");
 
 const patchList = document.getElementById("patchList");
 const patchEmpty = document.getElementById("patchEmpty");
+const favoriteList = document.getElementById("favoriteList");
+const favoriteEmpty = document.getElementById("favoriteEmpty");
 
 const captureStatus = document.getElementById("captureStatus");
 const nameInput = document.getElementById("nameInput");
@@ -95,12 +97,6 @@ function log(msg) {
   console.log(msg);
 }
 
-function escapeHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
-
 // ---- localStorage persistence ----------------------------------------
 
 function loadPresets() {
@@ -139,22 +135,74 @@ function setLed(status) {
   }
 }
 
+function createPatchTile(preset, index) {
+  // A div, not a <button> - so the real <button> star toggle can
+  // legally nest inside it (buttons can't contain buttons). Manually
+  // wired for click + keyboard (Enter/Space) to keep it accessible.
+  const tile = document.createElement("div");
+  tile.className = "patch-tile" + (index === activeIndex ? " patch-tile--active" : "");
+  tile.dataset.index = index;
+  tile.setAttribute("role", "button");
+  tile.tabIndex = 0;
+
+  const favBtn = document.createElement("button");
+  favBtn.type = "button";
+  favBtn.className = "patch-tile__fav" + (preset.favorite ? " patch-tile__fav--on" : "");
+  favBtn.setAttribute("aria-label", preset.favorite ? "Remove from favorites" : "Add to favorites");
+  favBtn.textContent = preset.favorite ? "★" : "☆";
+  favBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFavorite(index);
+  });
+
+  const indexSpan = document.createElement("span");
+  indexSpan.className = "patch-tile__index";
+  indexSpan.textContent = index;
+
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "patch-tile__name";
+  nameSpan.textContent = preset.name;
+
+  tile.appendChild(favBtn);
+  tile.appendChild(indexSpan);
+  tile.appendChild(nameSpan);
+
+  const trigger = () => {
+    tile.classList.add("patch-tile--sending");
+    playPreset(index).finally(() => tile.classList.remove("patch-tile--sending"));
+  };
+  tile.addEventListener("click", trigger);
+  tile.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      trigger();
+    }
+  });
+
+  return tile;
+}
+
+function toggleFavorite(index) {
+  if (!presets[index]) return;
+  presets[index].favorite = !presets[index].favorite;
+  savePresetsToStorage();
+  renderPatches();
+}
+
 function renderPatches() {
   patchList.innerHTML = "";
-
   if (presets.length === 0) {
     patchList.appendChild(patchEmpty);
   } else {
-    presets.forEach((p, i) => {
-      const btn = document.createElement("button");
-      btn.className = "patch-tile" + (i === activeIndex ? " patch-tile--active" : "");
-      btn.dataset.index = i;
-      btn.innerHTML = `
-        <span class="patch-tile__index">${i}</span>
-        <span class="patch-tile__name">${escapeHtml(p.name)}</span>
-      `;
-      patchList.appendChild(btn);
-    });
+    presets.forEach((p, i) => patchList.appendChild(createPatchTile(p, i)));
+  }
+
+  favoriteList.innerHTML = "";
+  const favIndices = presets.map((_, i) => i).filter(i => presets[i].favorite);
+  if (favIndices.length === 0) {
+    favoriteList.appendChild(favoriteEmpty);
+  } else {
+    favIndices.forEach(i => favoriteList.appendChild(createPatchTile(presets[i], i)));
   }
 
   const prevValue = slotSelect.value;
@@ -385,14 +433,6 @@ connectBtn.addEventListener("click", () => {
 
 prevBtn.addEventListener("click", () => stepTone("prev"));
 nextBtn.addEventListener("click", () => stepTone("next"));
-
-patchList.addEventListener("click", (e) => {
-  const tile = e.target.closest(".patch-tile");
-  if (!tile) return;
-  const index = parseInt(tile.dataset.index, 10);
-  tile.classList.add("patch-tile--sending");
-  playPreset(index).finally(() => tile.classList.remove("patch-tile--sending"));
-});
 
 saveBtn.addEventListener("click", () => {
   const slotValue = slotSelect.value;
