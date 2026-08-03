@@ -9,16 +9,6 @@
 //
 // MIDI_SERVICE_UUID / DATA_CHAR_UUID are the official BLE-MIDI spec
 // UUIDs, identical on every BLE-MIDI device regardless of manufacturer
-// - same values used throughout the Python version.
-//
-// KNOWN RISK, untested against real hardware from here: the 178-byte
-// preset-load write (packet2) needs the phone/Chrome to have
-// negotiated a large enough ATT MTU. Android+Chrome usually does this
-// automatically, but Web Bluetooth provides no JS API to request or
-// verify the MTU explicitly (unlike native BLE code). If small
-// commands (Connect, any future CC-style messages) work but "Play"
-// fails, this is almost certainly why - it's a platform limitation,
-// not a bug to fix in this file.
 // ---------------------------------------------------------------------
 
 const MIDI_SERVICE_UUID = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
