@@ -213,6 +213,21 @@ body {
   justify-content: center;
 }
 
+.btn--outline {
+  background: transparent;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+}
+
+.btn--outline:hover {
+  background: rgba(232, 163, 61, 0.1);
+}
+
+.btn--outline:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
 input[type="text"] {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -281,6 +296,22 @@ input[type="text"]:focus-visible {
   margin-top: 20px;
 }
 
+.panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel__header .panel__title {
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 /* --------------------------------------------------------- patches --- */
 
 .patch-grid {
@@ -306,7 +337,6 @@ input[type="text"]:focus-visible {
 }
 
 .patch-tile {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -336,23 +366,32 @@ input[type="text"]:focus-visible {
   outline-offset: 2px;
 }
 
-.patch-tile__fav {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 26px;
-  height: 26px;
+.patch-tile__icons {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.patch-tile__fav,
+.patch-tile__del {
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   border-radius: 50%;
   transition: color 0.15s ease, background 0.15s ease;
+}
+
+.patch-tile__fav {
+  margin-left: auto; /* stays pinned right whether or not the trash icon precedes it */
 }
 
 .patch-tile__fav:hover {
@@ -360,20 +399,19 @@ input[type="text"]:focus-visible {
   color: var(--amber);
 }
 
-.patch-tile__fav:focus-visible {
+.patch-tile__del:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--red);
+}
+
+.patch-tile__fav:focus-visible,
+.patch-tile__del:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 1px;
 }
 
 .patch-tile__fav--on {
   color: var(--amber);
-}
-
-.patch-tile__index {
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  font-size: 12px;
-  padding-right: 22px; /* keep clear of the star button */
 }
 
 .patch-tile__name {
@@ -388,10 +426,6 @@ input[type="text"]:focus-visible {
 .patch-tile--active {
   background: rgba(111, 191, 111, 0.12);
   border-color: var(--green);
-}
-
-.patch-tile--active .patch-tile__index {
-  color: var(--green);
 }
 
 .patch-tile--sending {
