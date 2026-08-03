@@ -262,6 +262,10 @@ input[type="text"]:focus-visible {
   padding: 18px 18px 20px;
 }
 
+.favorites {
+  margin-bottom: 20px;
+}
+
 .panel__title {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -302,6 +306,7 @@ input[type="text"]:focus-visible {
 }
 
 .patch-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -331,10 +336,44 @@ input[type="text"]:focus-visible {
   outline-offset: 2px;
 }
 
+.patch-tile__fav {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.patch-tile__fav:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--amber);
+}
+
+.patch-tile__fav:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.patch-tile__fav--on {
+  color: var(--amber);
+}
+
 .patch-tile__index {
   font-family: var(--font-mono);
   color: var(--text-muted);
   font-size: 12px;
+  padding-right: 22px; /* keep clear of the star button */
 }
 
 .patch-tile__name {
