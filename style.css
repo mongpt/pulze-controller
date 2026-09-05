@@ -435,6 +435,15 @@ input[type="text"]:focus-visible {
   border-color: var(--green);
 }
 
+.patch-tile--tuner {
+  justify-content: center;
+  min-height: 52px;
+}
+
+.patch-tile--tuner .patch-tile__name {
+  font-weight: 600;
+}
+
 .patch-tile--sending {
   opacity: 0.6;
   pointer-events: none;
