@@ -438,10 +438,28 @@ input[type="text"]:focus-visible {
 .patch-tile--tuner {
   justify-content: center;
   min-height: 52px;
+  background: linear-gradient(160deg, #b57bff, #7a3fd4);
+  border-color: #9b5cf0;
+  color: #f7f2ff;
+}
+
+.patch-tile--tuner:hover {
+  border-color: #d2b3ff;
+  filter: brightness(1.08);
+}
+
+.patch-tile--tuner.patch-tile--active {
+  background: rgba(111, 191, 111, 0.12);
+  border-color: var(--green);
+  color: var(--text);
+  filter: none;
 }
 
 .patch-tile--tuner .patch-tile__name {
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: inherit;
 }
 
 .patch-tile--sending {
