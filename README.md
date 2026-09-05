@@ -23,26 +23,29 @@ Firmware for that footswitch lives in
 
 ### How to open the app
 
-**Option A - host it (simplest ongoing use).**
-Upload `index.html`, `style.css`, and `app.js` to any static host
-(GitHub Pages works). Open the `https://` URL in Chrome. You can add
-it to the phone's home screen for a one-tap launch.
+**Simplest:** open this link in Chrome (or Edge/Brave):
 
-**Option B - serve it from the phone, fully offline.**
-Install [Termux](https://f-droid.org/packages/com.termux/) from
-F-Droid, then:
+**https://mongpt.github.io/pulze-controller/**
 
-```
-pkg install python
-cd /path/to/these/files
-python -m http.server 8000
-```
+You can add that page to the phone's home screen for a one-tap launch.
 
-Open Chrome at `http://localhost:8000`. Leave Termux running in the
-background while you use the page.
+**Other options** if you want a local copy:
 
-**Option C - open the file directly.**
-Double-tap `index.html` in Chrome. If Connect does nothing, use A or B.
+- **Host it yourself** - upload `index.html`, `style.css`, and `app.js`
+  to any static host (GitHub Pages works).
+- **Serve it from the phone, fully offline** - install
+  [Termux](https://f-droid.org/packages/com.termux/) from F-Droid, then:
+
+  ```
+  pkg install python
+  cd /path/to/these/files
+  python -m http.server 8000
+  ```
+
+  Open Chrome at `http://localhost:8000`. Leave Termux running in the
+  background while you use the page.
+- **Open the file directly** - double-tap `index.html` in Chrome. If
+  Connect does nothing, use the hosted link or Termux instead.
 
 ### Connect to the amp
 
