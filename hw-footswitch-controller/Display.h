@@ -13,8 +13,11 @@ public:
   bool begin();
 
   void showBoot();
+  // While tunerOn is true the preset-name row shows "TUNER" instead of
+  // the name, mirroring how the web app highlights the Tuner tile and
+  // un-highlights the patch tiles while the tuner is active.
   void showPerformance(AmpConnState ampState, uint16_t bank, uint8_t offset,
-                        uint16_t totalBanks, const char* presetName);
+                        uint16_t totalBanks, const char* presetName, bool tunerOn);
   void showTransferWaiting();
   void showReceiving();
   void showTransferProgress(uint16_t received, uint16_t total);

@@ -89,7 +89,7 @@ void Display::showBoot() {
 }
 
 void Display::showPerformance(AmpConnState ampState, uint16_t bank, uint8_t offset,
-                               uint16_t totalBanks, const char* presetName) {
+                               uint16_t totalBanks, const char* presetName, bool tunerOn) {
   (void)offset;      // no longer used here - the 4 LEDs indicate the active footswitch now
   (void)totalBanks;  // no longer shown - just "PAGE <n>" per the new design
 
@@ -135,9 +135,15 @@ void Display::showPerformance(AmpConnState ampState, uint16_t bank, uint8_t offs
   oled.print(pageText);
   oled.setTextColor(SSD1306_WHITE); // restore for anything drawn after
 
-  // ---- preset name: smaller, scrolls automatically if it doesn't fit ----
+  // ---- preset name: smaller, scrolls automatically if it doesn't fit.
+  // Tuner takes over this row while active - that's the one state
+  // where the amp is deliberately NOT on the shown preset. ----
   int nameY = badgeY + badgeH + 6;
-  drawScrollingText(presetName ? String(presetName) : String(""), nameY, 2);
+  if (tunerOn) {
+    drawScrollingText(String("TUNER"), nameY, 2);
+  } else {
+    drawScrollingText(presetName ? String(presetName) : String(""), nameY, 2);
+  }
 
   oled.display();
 }
@@ -152,8 +158,6 @@ void Display::showTransferWaiting() {
   oled.setCursor(0, 24);
   oled.println("Waiting for");
   oled.println("web app...");
-  oled.setCursor(0, 54);
-  oled.print("Hold both banks to exit");
   oled.display();
 }
 

@@ -87,7 +87,7 @@ let characteristic = null;
 // via its own button, so the footswitch's own peripheral connection
 // slot can be freed on demand (it needs to be free before the
 // footswitch itself can connect out to the amp - see the firmware's
-// gesture-driven design).
+// one-role-connected-at-a-time design).
 let fsDevice = null;
 let fsCharacteristic = null;
 

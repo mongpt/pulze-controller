@@ -38,7 +38,7 @@ public:
   void clearTransferComplete() { _complete = false; }
 
   // True while a phone/app is currently connected to this device's
-  // peripheral service - the amp-connect gesture checks this and
+  // peripheral service - the Connect footswitch checks this and
   // refuses to proceed until it's false, so the app's connection is
   // explicitly freed first rather than betting on true simultaneous
   // dual-role operation.

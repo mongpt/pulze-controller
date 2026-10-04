@@ -116,8 +116,9 @@ will not connect to the amp while the app is still attached to it.
 4. Tap **Disconnect Footswitch** so the hardware can connect to the
    amp.
 
-Everyday footswitch use (hold Page Up + Page Down to connect to the
-amp, switches 1–4 to recall, and so on) is documented in
+Everyday footswitch use (Connect switch to connect to the amp,
+switches 1–4 to recall, Tuner switch for the tuner, and so on) is
+documented in
 [`hw-footswitch-controller/README.md`](hw-footswitch-controller/README.md).
 
 ---

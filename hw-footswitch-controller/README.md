@@ -1,10 +1,11 @@
 # Pulze Footswitch Controller - Firmware
 
-ESP32-S3-N16R8 firmware: 6 footswitches (4 presets + Page Up/Down) and
-a 128x64 I2C SSD1306 OLED, 4 status LEDs. Connects directly to the
-Pulze Mini over BLE (no phone/PC bridge needed) to recall exact saved
-patches, and separately receives a curated preset library from the
-companion web app over its own BLE connection.
+ESP32-S3-N16R8 firmware: 8 footswitches (4 presets, Page Up/Down,
+Connect, Tuner) and a 128x64 I2C SSD1306 OLED, 4 status LEDs.
+Connects directly to the Pulze Mini over BLE (no phone/PC bridge
+needed) to recall exact saved patches and toggle the amp tuner, and
+separately receives a curated preset library from the companion web
+app over its own BLE connection.
 
 **Confirmed working on a real ESP32-S3-N16R8 board against a real
 Pulze Mini amp** - connecting, recalling presets, receiving a transfer
@@ -49,7 +50,9 @@ your specific board's actual silkscreen before wiring, since GPIO
 breakout availability varies between DevKitC revisions.
 
 Footswitches: normally-open, one leg to the GPIO, other leg to GND.
-Firmware uses `INPUT_PULLUP`, so no external resistor needed.
+Firmware uses `INPUT_PULLUP`, so no external resistor needed. The
+Connect and Tuner switches default to `PIN_CONNECT` / `PIN_TUNER` in
+`config.h` - change those two defines to match wherever you wired them.
 
 LEDs: GPIO -> ~220-330 ohm resistor -> LED anode -> LED cathode -> GND.
 
@@ -91,8 +94,8 @@ time:
   device powers on - no special mode needed to make it available.
 
 Because both roles share the same radio, the amp connection is
-gesture-driven and deliberately refuses to start while the app is
-still attached - you disconnect the app explicitly first. This is a
+started by its own footswitch and deliberately refuses to start while
+the app is still attached - you disconnect the app explicitly first. This is a
 conservative design choice (true simultaneous dual-role operation may
 work fine on this chip, but wasn't the design goal here), not a
 platform limitation.
@@ -122,24 +125,41 @@ transfer completely replaces what was there before, it doesn't merge.
 
 ### Everyday use: connecting to the amp and playing presets
 
-1. **Hold footswitches 5 and 6 (Page Up + Page Down) together for 2
-   seconds.** The OLED shows `AMP: connecting`, then either connects
-   or falls back to a brief scan if it's the first time (or the amp
-   moved/changed address). Once connected, the display shows `AMP OK`
-   and **automatically re-sends whatever preset was last active**
-   before you touch anything else - the amp ends up in the expected
-   state right away, not wherever it happened to be left.
-   - If you try this gesture while the web app is still connected, the
+Every footswitch is a single tap. There are no hold or two-button
+gestures.
+
+1. **Tap the Connect footswitch.** The OLED shows `AMP: connecting`,
+   then either connects or falls back to a brief scan if it's the
+   first time (or the amp moved/changed address). Once connected, the
+   display shows `AMP OK` and **automatically re-sends whatever preset
+   was last active** before you touch anything else - the amp ends up
+   in the expected state right away, not wherever it happened to be
+   left.
+   - If you tap Connect while the web app is still connected, the
      footswitch refuses and shows a brief reminder to disconnect the
      app first.
 2. **Footswitches 1-4** recall the preset in that slot on the
    currently-viewed page - instantly, and the corresponding LED lights
    up (the previous one turns off).
-3. **Footswitches 5 and 6** (tapped individually, not held) move
-   between pages without changing anything on the amp - just browsing.
-4. **Hold footswitches 5 and 6 together again** to disconnect from the
-   amp when you're done (e.g., to go build/update the library from the
-   app again).
+3. **Page Up / Page Down** move between pages without changing
+   anything on the amp - just browsing.
+4. **Tap Connect again** to disconnect from the amp when you're done
+   (e.g., to go build/update the library from the app again).
+
+### Tuner
+
+The Tuner footswitch mirrors the web app's Tuner tile (MIDI CC 55 on
+channel 0, value 100 = on, 0 = off):
+
+- **Tap Tuner** while connected - the amp tuner turns on. The OLED
+  preset-name row shows `TUNER` and all 4 preset LEDs go dark.
+- **Tap Tuner again** - tuner off, and the last active preset is
+  re-sent so the amp lands back on that tone. The LED and name return.
+- **Tap any preset footswitch while the tuner is on** - tuner off
+  first, then that preset loads.
+- Tuner does nothing while disconnected from the amp. Disconnecting
+  (or an amp drop) clears the tuner state, since the amp does not
+  remember it across connections.
 
 ### Reading the OLED
 
@@ -148,12 +168,12 @@ transfer completely replaces what was there before, it doesn't merge.
 - **Large inverted badge**: `PAGE <n>` - which page of 4 you're
   currently viewing.
 - **Line below the badge**: the name of the active preset, if it's on
-  the page you're currently viewing. If the name is wider than the
-  screen, it scrolls left automatically (1px every 100ms) rather than
-  getting cut off. If you've navigated to a *different* page than the
-  one the active preset lives on, this line is blank - the footswitch
-  LEDs are what actually tell you which of the 4 in the current page
-  (if any) is active, not this line.
+  the page you're currently viewing, or `TUNER` while the tuner is on.
+  If the name is wider than the screen, it scrolls left automatically
+  (1px every 100ms) rather than getting cut off. If you've navigated
+  to a *different* page than the one the active preset lives on, this
+  line is blank - the footswitch LEDs are what actually tell you which
+  of the 4 in the current page (if any) is active, not this line.
 
 ### What the LEDs mean
 
@@ -161,4 +181,5 @@ Each of the 4 preset LEDs lights up only when that footswitch's preset
 on the *currently active* page is the one last sent to the amp. They
 don't indicate anything about whichever page you happen to be
 browsing/viewing if it's different from the active one - only the
-OLED's preset-name line (or its blankness) tells you that.
+OLED's preset-name line (or its blankness) tells you that. All 4 LEDs
+are off while the tuner is on.

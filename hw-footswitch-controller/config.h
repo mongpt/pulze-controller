@@ -28,6 +28,8 @@
 #define PIN_FW4           7   // preset 4 (bank offset 3)
 #define PIN_BANK_UP       15
 #define PIN_BANK_DOWN     16
+#define PIN_CONNECT       13  // tap: connect to / disconnect from the amp
+#define PIN_TUNER         14  // tap: tuner on / off (MIDI CC 55, same as the web app)
 
 #define PIN_LED1          17
 #define PIN_LED2          18
@@ -92,8 +94,13 @@ static const uint8_t PACKET_COMMIT[16] = {
 #define FS_MSG_END            0x03
 #define FS_MSG_MAX_WRITE_LEN  18   // total bytes per write, tag included
 
+// Hotone's MIDI Control Change for the tuner (channel 0): 0-63 off,
+// 64-127 on. Same values the web app sends from its Tuner tile.
+#define TUNER_CC              55
+#define TUNER_ON_VALUE        100
+#define TUNER_OFF_VALUE       0
+
 #define DEBOUNCE_MS           30
-#define LONG_PRESS_MS         2000  // hold Bank Up + Bank Down this long at boot -> transfer mode
 #define LAST_USED_SETTLE_MS   5000  // wait this long with no further FW change before persisting
                                      // "last used preset" to NVS - avoids a write on every single
                                      // press during rapid switching. Sending to the amp itself is

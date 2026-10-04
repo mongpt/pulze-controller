@@ -5,15 +5,21 @@
 // continuously from boot - the web app can connect and transfer a
 // library at any time, no special mode needed on the footswitch side
 // for that. The BLE central connection to the amp (BleAmp) is
-// GESTURE-DRIVEN instead: hold both Bank buttons together to connect,
-// same gesture again to disconnect.
+// BUTTON-DRIVEN instead: tap the dedicated Connect footswitch to
+// connect, tap it again to disconnect. Bank Up/Down only ever change
+// the bank - there are no multi-button gestures.
+//
+// A dedicated Tuner footswitch toggles the amp's tuner over MIDI CC
+// 55, with the same rules as the web app's Tuner tile: tapping it
+// while on turns the tuner off and re-sends the active preset, and
+// tapping any preset while the tuner is on turns the tuner off first.
 //
 // Both layer on top of a single NimBLEDevice::init() call made once in
 // setup() - this is standard, well-supported NimBLE usage (a server
 // and a client coexisting under one BLE stack instance). What's
 // deliberately NOT attempted is having BOTH a live peripheral
 // connection (to the app) AND a live central connection (to the amp)
-// AT THE SAME TIME - the amp-connect gesture refuses to proceed while
+// AT THE SAME TIME - the Connect button refuses to proceed while
 // the app is attached, requiring it be disconnected first (via the
 // app's own "Disconnect Footswitch" button). This is a conservative
 // choice: true simultaneous dual-role operation may well work fine on
@@ -23,9 +29,9 @@
 //
 // Two FreeRTOS tasks:
 //   - uiTask (core 1): buttons, LEDs, display, bank/preset navigation,
-//     the gesture, everything user-facing.
+//     everything user-facing.
 //   - bleTask (core 0): idles on a queue, handles CONNECT_AMP /
-//     DISCONNECT_AMP / PLAY_PRESET requests from uiTask. Runs on its
+//     DISCONNECT_AMP / PLAY_PRESET / TOGGLE_TUNER requests from uiTask. Runs on its
 //     own core so a preset send (~400-500ms) or a scan-and-connect
 //     (several seconds) never blocks button reading or the display.
 // ---------------------------------------------------------------------
@@ -40,11 +46,16 @@
 #include "BleAmp.h"
 #include "BleTransfer.h"
 
-enum class BleRequestType { CONNECT_AMP, DISCONNECT_AMP, PLAY_PRESET };
+enum class BleRequestType { CONNECT_AMP, DISCONNECT_AMP, PLAY_PRESET, TOGGLE_TUNER };
 struct BleRequest {
   BleRequestType type;
+  // PLAY_PRESET: the preset to send.
+  // TOGGLE_TUNER: the preset to recall when turning the tuner OFF
+  //               (NO_PRESET if nothing is active).
   uint16_t presetIndex;
 };
+
+static const uint16_t NO_PRESET = 0xFFFF;
 
 static QueueHandle_t bleRequestQueue;
 
@@ -108,7 +119,21 @@ static void bleTaskFn(void* /*param*/) {
       }
       case BleRequestType::PLAY_PRESET: {
         const Preset* p = presetStore.get(req.presetIndex);
-        if (p) bleAmp.sendPreset(p);
+        if (p) bleAmp.sendPreset(p); // also turns the tuner off if it was on
+        break;
+      }
+      case BleRequestType::TOGGLE_TUNER: {
+        if (bleAmp.isTunerOn()) {
+          bleAmp.setTuner(false);
+          // Same as the web app: leaving the tuner recalls whatever
+          // preset was selected, so the amp lands back on that tone.
+          if (req.presetIndex != NO_PRESET) {
+            const Preset* p = presetStore.get(req.presetIndex);
+            if (p) bleAmp.sendPreset(p);
+          }
+        } else {
+          bleAmp.setTuner(true);
+        }
         break;
       }
     }
@@ -137,12 +162,18 @@ static void uiTaskFn(void* /*param*/) {
   // stale for up to LAST_USED_SETTLE_MS after a press. NVS is only the
   // source of truth at boot; during a running session, this in-memory value is.
   uint16_t activeBank = bank;
-  if (haveActive) buttons.setLed(activeOffset, true);
 
   const ButtonId fwButtons[4] = { ButtonId::FW1, ButtonId::FW2, ButtonId::FW3, ButtonId::FW4 };
 
-  bool showingGestureRefusal = false;
-  unsigned long gestureRefusalUntil = 0;
+  bool showingConnectRefusal = false;
+  unsigned long connectRefusalUntil = 0;
+
+  // The 4 preset LEDs are refreshed from state every loop rather than
+  // poked on each press, because tuner state lives on the BLE task and
+  // changes asynchronously (e.g. sendPreset turning the tuner off).
+  // While the tuner is on, all preset LEDs are off - same as the web
+  // app un-highlighting the patch tiles while the Tuner tile is lit.
+  int8_t litLed = -1; // -1 = none, otherwise 0-3 - what's currently driven
 
   // "Last used" NVS writes are debounced separately from actually
   // playing a preset - every press still plays instantly (see the
@@ -159,9 +190,9 @@ static void uiTaskFn(void* /*param*/) {
 
     // While actively receiving a transfer, show a dedicated message and
     // skip normal footswitch/bank handling entirely - the amp can't be
-    // connected right now anyway (the gesture already refuses to
-    // connect while the app is attached), so there's nothing useful for
-    // FW/bank presses to do until this finishes.
+    // connected right now anyway (Connect already refuses while the
+    // app is attached), so there's nothing useful for FW/bank presses
+    // to do until this finishes.
     if (bleTransfer.isReceiving()) {
       display.showReceiving();
       delay(20);
@@ -170,13 +201,11 @@ static void uiTaskFn(void* /*param*/) {
 
     uint16_t totalBanks = presetStore.totalBanks();
 
-    // Bank navigation - ignore a bank button's own press if the OTHER
-    // bank button is also currently held, since that combination means
-    // the user is forming the two-button gesture, not navigating.
-    if (totalBanks > 0 && buttons.wasPressed(ButtonId::BANK_UP) && !buttons.isHeld(ButtonId::BANK_DOWN)) {
+    // Bank navigation - single taps, nothing else to disambiguate.
+    if (totalBanks > 0 && buttons.wasPressed(ButtonId::BANK_UP)) {
       bank = (bank + 1) % totalBanks;
     }
-    if (totalBanks > 0 && buttons.wasPressed(ButtonId::BANK_DOWN) && !buttons.isHeld(ButtonId::BANK_UP)) {
+    if (totalBanks > 0 && buttons.wasPressed(ButtonId::BANK_DOWN)) {
       bank = (bank == 0) ? (totalBanks - 1) : (bank - 1);
     }
 
@@ -192,8 +221,6 @@ static void uiTaskFn(void* /*param*/) {
           BleRequest req{ BleRequestType::PLAY_PRESET, idx };
           xQueueSend(bleRequestQueue, &req, 0);
 
-          buttons.allLedsOff();
-          buttons.setLed(i, true);
           activeOffset = i;
           activeBank = bank;
           haveActive = true;
@@ -204,18 +231,33 @@ static void uiTaskFn(void* /*param*/) {
       }
     }
 
-    // Amp connect/disconnect gesture
-    if (buttons.bankGestureTriggered()) {
+    // Connect footswitch: toggles the amp connection.
+    if (buttons.wasPressed(ButtonId::CONNECT)) {
       if (bleAmp.isConnected()) {
         BleRequest req{ BleRequestType::DISCONNECT_AMP, 0 };
         xQueueSend(bleRequestQueue, &req, 0);
       } else if (bleTransfer.isAppConnected()) {
-        Serial.println("[main] amp-connect gesture ignored - app is currently connected");
-        showingGestureRefusal = true;
-        gestureRefusalUntil = millis() + 2000;
+        Serial.println("[main] Connect ignored - app is currently connected");
+        showingConnectRefusal = true;
+        connectRefusalUntil = millis() + 2000;
       } else {
         BleRequest req{ BleRequestType::CONNECT_AMP, 0 };
         xQueueSend(bleRequestQueue, &req, 0);
+      }
+    }
+
+    // Tuner footswitch: toggles the amp tuner. Passes along the active
+    // preset so turning the tuner OFF recalls it (web-app behaviour).
+    // Does nothing while disconnected - there's no amp to send to.
+    if (buttons.wasPressed(ButtonId::TUNER)) {
+      if (bleAmp.isConnected()) {
+        uint16_t recallIdx = haveActive
+          ? (uint16_t)activeBank * PRESETS_PER_BANK + activeOffset
+          : NO_PRESET;
+        BleRequest req{ BleRequestType::TOGGLE_TUNER, recallIdx };
+        xQueueSend(bleRequestQueue, &req, 0);
+      } else {
+        Serial.println("[main] Tuner ignored - not connected to the amp");
       }
     }
 
@@ -241,14 +283,22 @@ static void uiTaskFn(void* /*param*/) {
 
       loadActivePresetState(bank, activeOffset, haveActive);
       activeBank = bank;
-      buttons.allLedsOff();
-      if (haveActive) buttons.setLed(activeOffset, true);
     }
 
-    if (showingGestureRefusal && millis() < gestureRefusalUntil) {
+    bool tunerOn = bleAmp.isTunerOn();
+
+    // Preset LEDs - derived from state, see the note at litLed above.
+    int8_t wantLed = (haveActive && !tunerOn) ? (int8_t)activeOffset : -1;
+    if (wantLed != litLed) {
+      buttons.allLedsOff();
+      if (wantLed >= 0) buttons.setLed((uint8_t)wantLed, true);
+      litLed = wantLed;
+    }
+
+    if (showingConnectRefusal && millis() < connectRefusalUntil) {
       display.showError("Disconnect the app\nfirst (use the\nfootswitch button\nin the web app)");
     } else {
-      showingGestureRefusal = false;
+      showingConnectRefusal = false;
 
       const Preset* shown = haveActive ? presetStore.getByBankAndOffset(bank, activeOffset) : nullptr;
       bool activeIsInThisBank = haveActive && (bank == activeBank);
@@ -258,7 +308,8 @@ static void uiTaskFn(void* /*param*/) {
         bank,
         activeIsInThisBank ? activeOffset : 0,
         totalBanks,
-        activeIsInThisBank && shown ? shown->name : ""
+        activeIsInThisBank && shown ? shown->name : "",
+        tunerOn
       );
     }
 

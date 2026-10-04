@@ -8,8 +8,12 @@ namespace {
 }
 
 void Buttons::begin() {
+  // Order must match the ButtonId enum.
   const uint8_t pins[(size_t)ButtonId::COUNT] = {
-    PIN_FW1, PIN_FW2, PIN_FW3, PIN_FW4, PIN_BANK_UP, PIN_BANK_DOWN
+    PIN_FW1, PIN_FW2, PIN_FW3, PIN_FW4,
+    PIN_BANK_UP, PIN_BANK_DOWN,
+    PIN_CONNECT,
+    PIN_TUNER
   };
   for (size_t i = 0; i < (size_t)ButtonId::COUNT; i++) {
     _buttons[i].pin = pins[i];
@@ -23,7 +27,6 @@ void Buttons::begin() {
 
 void Buttons::update() {
   unsigned long now = millis();
-  _bankGestureTriggeredThisUpdate = false;
 
   for (size_t i = 0; i < (size_t)ButtonId::COUNT; i++) {
     ButtonState& b = _buttons[i];
@@ -43,39 +46,10 @@ void Buttons::update() {
       }
     }
   }
-
-  // Runtime amp connect/disconnect gesture: fires exactly once, the
-  // moment both bank buttons have been continuously held together for
-  // LONG_PRESS_MS - latched so it doesn't fire again every update()
-  // call for the rest of the hold, and resets as soon as either button
-  // is released (so the next hold can trigger it again).
-  bool bankUpHeld = !_buttons[(size_t)ButtonId::BANK_UP].stableState;
-  bool bankDownHeld = !_buttons[(size_t)ButtonId::BANK_DOWN].stableState;
-
-  if (bankUpHeld && bankDownHeld) {
-    if (_bankHeldSinceMs == 0) {
-      _bankHeldSinceMs = now;
-      _bankGestureFiredThisHold = false;
-    } else if (!_bankGestureFiredThisHold && (now - _bankHeldSinceMs) >= LONG_PRESS_MS) {
-      _bankGestureFiredThisHold = true;
-      _bankGestureTriggeredThisUpdate = true;
-    }
-  } else {
-    _bankHeldSinceMs = 0;
-    _bankGestureFiredThisHold = false;
-  }
 }
 
 bool Buttons::wasPressed(ButtonId id) const {
   return _buttons[(size_t)id].edgeThisUpdate;
-}
-
-bool Buttons::bankGestureTriggered() const {
-  return _bankGestureTriggeredThisUpdate;
-}
-
-bool Buttons::isHeld(ButtonId id) const {
-  return !_buttons[(size_t)id].stableState;
 }
 
 void Buttons::setLed(uint8_t fwIndex, bool on) {

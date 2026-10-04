@@ -158,6 +158,25 @@ void BleAmp::disconnect() {
 
 void BleAmp::onDisconnected() {
   _state = AmpConnState::DISCONNECTED;
+  _tunerOn = false; // the amp doesn't remember this across connections
+}
+
+bool BleAmp::sendControlChange(uint8_t cc, uint8_t value) {
+  if (_state != AmpConnState::CONNECTED || !dataChar) {
+    Serial.println("[BleAmp] sendControlChange called while not connected");
+    return false;
+  }
+  // BLE-MIDI header + timestamp (0x80 0x80), then CC on channel 0 -
+  // byte-for-byte what the web app's sendControlChange() writes.
+  uint8_t packet[5] = { 0x80, 0x80, 0xb0, cc, value };
+  return dataChar->writeValue(packet, sizeof(packet), false);
+}
+
+bool BleAmp::setTuner(bool on) {
+  bool ok = sendControlChange(TUNER_CC, on ? TUNER_ON_VALUE : TUNER_OFF_VALUE);
+  if (ok) _tunerOn = on;
+  Serial.printf("[BleAmp] tuner %s: %s\n", on ? "on" : "off", ok ? "ok" : "FAILED");
+  return ok;
 }
 
 bool BleAmp::sendPreset(const Preset* preset) {
@@ -165,6 +184,11 @@ bool BleAmp::sendPreset(const Preset* preset) {
     Serial.println("[BleAmp] sendPreset called while not connected");
     return false;
   }
+
+  // Same rule as the web app: selecting a patch always leaves the
+  // tuner off, so the amp comes back to the tone instead of staying
+  // muted in tuner mode.
+  if (_tunerOn) setTuner(false);
 
   uint8_t seq = nextSeq();
 

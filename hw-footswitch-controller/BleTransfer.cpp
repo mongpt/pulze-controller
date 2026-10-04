@@ -16,7 +16,7 @@
 // host_test/. This file's job is: advertise continuously from boot,
 // accept writes, strip the message-type tag, accumulate DATA bytes,
 // call the tested parser when END arrives, and track whether a
-// phone/app is currently connected (so the amp-connect gesture can
+// phone/app is currently connected (so the Connect footswitch can
 // require that connection be freed first).
 // ---------------------------------------------------------------------
 
