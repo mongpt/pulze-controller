@@ -20,6 +20,23 @@ class ClientCallbacks : public NimBLEClientCallbacks {
 
 ClientCallbacks clientCallbacks;
 
+// packet2 is 194 bytes and must go out as one write-without-response,
+// the same way the web app sends it. Until the MTU exchange finishes
+// the link still has the default 23-byte MTU, and NimBLE turns the
+// write into a long write that the amp does not apply as a preset.
+const uint16_t MIN_PRESET_MTU = PACKET2_LEN + 3;
+const unsigned long MTU_WAIT_MS = 1500;
+
+void waitForPresetMtu() {
+  if (!client) return;
+
+  unsigned long start = millis();
+  while (client->getMTU() < MIN_PRESET_MTU && (millis() - start) < MTU_WAIT_MS) {
+    delay(20);
+  }
+  Serial.printf("[BleAmp] MTU %u\n", client->getMTU());
+}
+
 } // namespace
 
 void BleAmp::begin() {
@@ -189,6 +206,8 @@ bool BleAmp::sendPreset(const Preset* preset) {
   // tuner off, so the amp comes back to the tone instead of staying
   // muted in tuner mode.
   if (_tunerOn) setTuner(false);
+
+  waitForPresetMtu();
 
   uint8_t seq = nextSeq();
 

@@ -59,6 +59,19 @@ static const uint16_t NO_PRESET = 0xFFFF;
 
 static QueueHandle_t bleRequestQueue;
 
+// The preset the footswitch is actually on. The lit LED is updated
+// immediately, but the NVS copy waits LAST_USED_SETTLE_MS, so a connect
+// that reads only NVS can send nothing or an older preset.
+static uint16_t currentPresetIndex(uint16_t activeBank, uint8_t activeOffset, bool haveActive) {
+  if (haveActive) {
+    return (uint16_t)activeBank * PRESETS_PER_BANK + activeOffset;
+  }
+
+  uint16_t saved = settings.getLastActiveIndex();
+  if (saved != 0xFFFF && saved < presetStore.count()) return saved;
+  return NO_PRESET;
+}
+
 // Recomputes bank/offset/haveActive from settings' remembered index,
 // bounds-checked against the CURRENT library. Used both at boot and
 // after a transfer replaces the library (where the old in-memory
@@ -93,21 +106,14 @@ static void bleTaskFn(void* /*param*/) {
         if (!ok) {
           Serial.println("[main] amp connect failed, resuming app advertising");
           bleTransfer.resumeAdvertising();
-        } else {
-          // Immediately re-apply whatever was last active, so the amp
-          // ends up in the expected state right away rather than
-          // waiting for the next footswitch press - the amp has no
-          // memory of what the footswitch last told it across a BLE
-          // disconnect, so without this it could be sitting on
-          // whatever it was doing before (someone else's edits, a
-          // different patch entirely, etc).
-          uint16_t lastIdx = settings.getLastActiveIndex();
-          if (lastIdx != 0xFFFF && lastIdx < presetStore.count()) {
-            const Preset* p = presetStore.get(lastIdx);
-            if (p) {
-              Serial.println("[main] re-applying last-used preset after connect");
-              bleAmp.sendPreset(p);
-            }
+        } else if (req.presetIndex != NO_PRESET) {
+          // The amp keeps its own preset across this connection. Push
+          // the footswitch's selected preset now, instead of waiting
+          // for the next footswitch press.
+          const Preset* p = presetStore.get(req.presetIndex);
+          if (p) {
+            Serial.printf("[main] sending selected preset %u after connect\n", req.presetIndex);
+            bleAmp.sendPreset(p);
           }
         }
         break;
@@ -241,7 +247,7 @@ static void uiTaskFn(void* /*param*/) {
         showingConnectRefusal = true;
         connectRefusalUntil = millis() + 2000;
       } else {
-        BleRequest req{ BleRequestType::CONNECT_AMP, 0 };
+        BleRequest req{ BleRequestType::CONNECT_AMP, currentPresetIndex(activeBank, activeOffset, haveActive) };
         xQueueSend(bleRequestQueue, &req, 0);
       }
     }

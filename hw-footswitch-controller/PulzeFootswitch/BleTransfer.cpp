@@ -30,13 +30,68 @@ namespace {
 
 NimBLEServer* server = nullptr;
 NimBLECharacteristic* dataChar = nullptr;
+// ESP32 core 3/4 builds NimBLE with extended advertising, which removes
+// NimBLEAdvertising. The packet stays a legacy connectable advert so the
+// browser can still filter on the service UUID.
+#if CONFIG_BT_NIMBLE_EXT_ADV
+NimBLEExtAdvertising* advertising = nullptr;
+const uint8_t ADVERT_INSTANCE = 0;
+#else
 NimBLEAdvertising* advertising = nullptr;
+#endif
 
 const size_t RX_BUFFER_CAP = 64 * 1024;
 uint8_t* rxBuffer = nullptr;
 size_t rxLen = 0;
 uint16_t expectedCount = 0;
 bool transferInProgress = false;
+
+const char* DEVICE_NAME = "Pulze Footswitch";
+
+bool startAdvertising() {
+  if (!advertising) return false;
+
+#if CONFIG_BT_NIMBLE_EXT_ADV
+  // Flags plus the 128-bit UUID use 21 of the 31 legacy advert bytes.
+  // The name goes in the scan response so the browser picker can show it.
+  NimBLEExtAdvertisement advert;
+  advert.setLegacyAdvertising(true);
+  advert.setConnectable(true);
+  advert.setFlags(BLE_HS_ADV_F_DISC_GEN);
+  if (!advert.addServiceUUID(FOOTSWITCH_SERVICE_UUID)) {
+    Serial.println("[BleTransfer] service UUID does not fit in the advert");
+    return false;
+  }
+
+  NimBLEExtAdvertisement scanResponse;
+  if (!scanResponse.setName(DEVICE_NAME)) {
+    Serial.println("[BleTransfer] device name does not fit in the scan response");
+    return false;
+  }
+
+  if (!advertising->setInstanceData(ADVERT_INSTANCE, advert)) {
+    Serial.println("[BleTransfer] failed to set advert data");
+    return false;
+  }
+  if (!advertising->setScanResponseData(ADVERT_INSTANCE, scanResponse)) {
+    Serial.println("[BleTransfer] failed to set scan response");
+    return false;
+  }
+  return advertising->start(ADVERT_INSTANCE);
+#else
+  advertising->setName(DEVICE_NAME);
+  return advertising->start();
+#endif
+}
+
+void stopAdvertising() {
+  if (!advertising) return;
+#if CONFIG_BT_NIMBLE_EXT_ADV
+  advertising->stop(ADVERT_INSTANCE);
+#else
+  advertising->stop();
+#endif
+}
 
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
@@ -53,7 +108,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     // harmless no-op if we're mid-amp-connection and deliberately paused,
     // since pauseAdvertising() will have been called after this anyway
     // in that flow's ordering.
-    if (advertising) advertising->start();
+    startAdvertising();
   }
 };
 
@@ -150,32 +205,25 @@ void BleTransfer::begin() {
   service->start();
 
   advertising = NimBLEDevice::getAdvertising();
+#if !CONFIG_BT_NIMBLE_EXT_ADV
   advertising->addServiceUUID(FOOTSWITCH_SERVICE_UUID);
-  // Explicit, deliberate call - don't rely on NimBLEDevice::init()'s
-  // name alone reaching the actual over-the-air advertisement payload.
-  // Confirmed on real hardware: without this, the connection itself
-  // works fine (service UUID filtering finds and connects to the
-  // device correctly), but no name is ever broadcast, so Chrome falls
-  // back to showing an opaque device ID and generic scanners show
-  // "Unknown device" - purely cosmetic, but worth fixing so the device
-  // is actually identifiable in the connection dialog.
-  advertising->setName("Pulze Footswitch");
-  advertising->start();
+#endif
+  if (!startAdvertising()) {
+    Serial.println("[BleTransfer] failed to start advertising");
+    return;
+  }
 
   Serial.println("[BleTransfer] advertising as 'Pulze Footswitch'");
 }
 
 void BleTransfer::pauseAdvertising() {
-  if (advertising) advertising->stop();
+  stopAdvertising();
 }
 
 void BleTransfer::resumeAdvertising() {
-  if (advertising) {
-    // Re-assert the name defensively before every resume, in case
-    // stop()/start() resets advertisement config in this NimBLE
-    // version - cheap insurance against the name silently dropping
-    // out after an amp-connect/disconnect cycle.
-    advertising->setName("Pulze Footswitch");
-    advertising->start();
+  // Rebuild the payload before every resume. stop()/start() can drop
+  // the name, and the browser then shows an opaque device id.
+  if (!startAdvertising()) {
+    Serial.println("[BleTransfer] failed to resume advertising");
   }
 }

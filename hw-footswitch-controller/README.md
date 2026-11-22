@@ -15,11 +15,16 @@ reviewed as code.
 
 ## Required libraries (Arduino Library Manager)
 
-- **NimBLE-Arduino** (h2zero) - written against the 2.x API surface
+- **NimBLE-Arduino** (h2zero) - written against the 2.x API surface.
+  `BleTransfer.cpp` also compiles when the boards package enables
+  extended advertising; the on-air packet stays a legacy connectable
+  advert either way.
 - **Adafruit_SSD1306**
 - **Adafruit_GFX**
 
-Board: **ESP32S3 Dev Module** (esp32 boards package by Espressif)
+Board: **ESP32S3 Dev Module** (esp32 boards package by Espressif,
+**3.3.x** - the firmware is verified on that line; the 4.0.0 package
+enables NimBLE options that NimBLE-Arduino does not support yet)
 
 ## Required settings (Arduino IDE, Tools menu)
 
@@ -131,10 +136,9 @@ gestures.
 1. **Tap the Connect footswitch.** The OLED shows `AMP: connecting`,
    then either connects or falls back to a brief scan if it's the
    first time (or the amp moved/changed address). Once connected, the
-   display shows `AMP OK` and **automatically re-sends whatever preset
-   was last active** before you touch anything else - the amp ends up
-   in the expected state right away, not wherever it happened to be
-   left.
+   display shows `AMP OK` and the footswitch sends its selected preset
+   to the amp. The amp then matches the lit footswitch instead of
+   staying on the preset it had before the connection.
    - If you tap Connect while the web app is still connected, the
      footswitch refuses and shows a brief reminder to disconnect the
      app first.
