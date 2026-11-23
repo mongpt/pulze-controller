@@ -381,7 +381,8 @@ input[type="text"]:focus-visible {
 }
 
 .patch-tile__fav,
-.patch-tile__del {
+.patch-tile__del,
+.fav-tile__btn {
   width: 24px;
   height: 24px;
   display: flex;
@@ -412,7 +413,8 @@ input[type="text"]:focus-visible {
 }
 
 .patch-tile__fav:focus-visible,
-.patch-tile__del:focus-visible {
+.patch-tile__del:focus-visible,
+.fav-tile__btn:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 1px;
 }
@@ -465,6 +467,97 @@ input[type="text"]:focus-visible {
 .patch-tile--sending {
   opacity: 0.6;
   pointer-events: none;
+}
+
+.patch-tile--dragging {
+  opacity: 0.4;
+}
+
+/* --------------------------------------------------- favorite pages --- */
+
+.fav-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.fav-page {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+}
+
+.fav-page__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.fav-page__title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-right: auto;
+}
+
+.fav-page__slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .fav-page__slots { grid-template-columns: repeat(2, 1fr); }
+}
+
+.fav-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 84px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px dashed var(--hairline);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.fav-slot--over {
+  border-color: var(--amber);
+  background: rgba(232, 163, 61, 0.08);
+}
+
+.fav-slot__label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.fav-slot--empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.fav-tile__controls {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.fav-tile__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--amber);
+}
+
+.fav-tile__btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.fav-tile__btn--remove {
+  margin-left: auto;
 }
 
 /* -------------------------------------------------------- capture --- */

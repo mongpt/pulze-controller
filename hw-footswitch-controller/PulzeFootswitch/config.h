@@ -70,11 +70,16 @@ static const uint8_t PACKET_COMMIT[16] = {
 };
 
 // ---- footswitch controller constants -----------------------------------
+// A "bank" is one page of the web app's Favorites section: up to
+// PRESETS_PER_BANK presets, one per preset footswitch.
 #define PRESETS_PER_BANK      4
+#define MAX_PAGES             64   // must match MAX_FAVORITE_PAGES in favoritePages.js
+#define MAX_LIBRARY_PRESETS   256  // distinct presets; a preset on several pages counts once
+#define PRESET_NONE           0xFFFF // "no preset": an empty footswitch, or nothing selected
 #define MAX_PRESET_NAME_LEN   40   // truncate anything longer on receive
 #define PRESETS_FILE_PATH     "/presets.bin"
 
-// ---- transfer protocol (v2) --------------------------------------------
+// ---- transfer protocol (v3) --------------------------------------------
 // Every BLE write during a transfer starts with one of these type tags
 // as its very first byte - this is what makes control messages
 // unambiguous from data, since data payload bytes are arbitrary preset
@@ -84,8 +89,17 @@ static const uint8_t PACKET_COMMIT[16] = {
 // coincidentally start with the magic byte and get misread as END.)
 //
 //   START: [FS_MSG_START, countLo, countHi]   (3 bytes total)
+//          count = number of DISTINCT presets that follow
 //   DATA:  [FS_MSG_DATA, ...up to 17 payload bytes]  (<= 18 bytes total)
 //   END:   [FS_MSG_END]                        (1 byte total)
+//
+// The DATA payload bytes, joined in order, are:
+//   [pageCount]
+//   per page: [slotCount (0-4)] then slotCount x [presetIndex u16 LE]
+//   `count` preset records: [nameLen u16 LE][name][194-byte packet2]
+// Slot n of a page is footswitch n+1. A presetIndex points at one of
+// the records, so a preset used on several pages is sent once.
+// See TransferParser.cpp.
 //
 // Must match FS_MSG_* / the chunking logic in the web app's app.js
 // exactly - if either side changes, both must change together.

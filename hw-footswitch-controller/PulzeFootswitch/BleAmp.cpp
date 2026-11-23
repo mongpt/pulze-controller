@@ -27,6 +27,30 @@ ClientCallbacks clientCallbacks;
 const uint16_t MIN_PRESET_MTU = PACKET2_LEN + 3;
 const unsigned long MTU_WAIT_MS = 1500;
 
+// 30–50 ms interval, no slave latency, 2 s supervision. The amp does
+// not send a disconnect when it is switched off; this timeout is what
+// makes the controller report the link as gone.
+const uint16_t AMP_CONN_ITVL_MIN = 24;
+const uint16_t AMP_CONN_ITVL_MAX = 40;
+const uint16_t AMP_CONN_LATENCY = 0;
+const uint16_t AMP_SUPERVISION_TIMEOUT = 200;
+
+bool linkIsUp() {
+  if (!client || !client->isConnected()) return false;
+
+  ble_gap_conn_desc desc;
+  return ble_gap_conn_find(client->getConnHandle(), &desc) == 0;
+}
+
+void releaseClient() {
+  if (!client) return;
+
+  NimBLEClient* stale = client;
+  client = nullptr;
+  dataChar = nullptr;
+  NimBLEDevice::deleteClient(stale);
+}
+
 void waitForPresetMtu() {
   if (!client) return;
 
@@ -58,6 +82,8 @@ uint8_t BleAmp::nextSeq() {
 bool BleAmp::connectToAddress(const NimBLEAddress& addr) {
   client = NimBLEDevice::createClient();
   client->setClientCallbacks(&clientCallbacks, false);
+  client->setConnectionParams(
+    AMP_CONN_ITVL_MIN, AMP_CONN_ITVL_MAX, AMP_CONN_LATENCY, AMP_SUPERVISION_TIMEOUT);
 
   if (!client->connect(addr)) {
     Serial.println("[BleAmp] connect failed");
@@ -174,8 +200,26 @@ void BleAmp::disconnect() {
 }
 
 void BleAmp::onDisconnected() {
-  _state = AmpConnState::DISCONNECTED;
+  dataChar = nullptr;
   _tunerOn = false; // the amp doesn't remember this across connections
+  if (_state != AmpConnState::CONNECTED) return;
+
+  _state = AmpConnState::DISCONNECTED;
+  _linkLost = true;
+  Serial.println("[BleAmp] amp link lost");
+}
+
+bool BleAmp::consumeLinkLoss() {
+  // The disconnect callback is the normal path. This also catches a
+  // dead link when that callback never arrives.
+  if (_state == AmpConnState::CONNECTED && !linkIsUp()) {
+    onDisconnected();
+  }
+  if (!_linkLost) return false;
+
+  _linkLost = false;
+  releaseClient();
+  return true;
 }
 
 bool BleAmp::sendControlChange(uint8_t cc, uint8_t value) {

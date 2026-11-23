@@ -17,8 +17,10 @@ public:
   uint8_t getAmpAddressType() const; // BLE_ADDR_PUBLIC / BLE_ADDR_RANDOM
   void setAmpAddress(const String& address, uint8_t addressType);
 
-  uint16_t getLastActiveIndex() const; // 0xFFFF = none
-  void setLastActiveIndex(uint16_t index);
+  // The footswitch last used, as page * PRESETS_PER_BANK + footswitch
+  // (0-based). 0xFFFF = none.
+  uint16_t getLastActiveSlot() const;
+  void setLastActiveSlot(uint16_t slot);
 };
 
 extern Settings settings;

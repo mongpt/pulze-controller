@@ -8,7 +8,7 @@ namespace {
   const char* NAMESPACE = "pulzefs";
   const char* KEY_AMP_ADDR = "ampAddr";
   const char* KEY_AMP_ADDR_TYPE = "ampAddrType";
-  const char* KEY_LAST_IDX = "lastIdx";
+  const char* KEY_LAST_SLOT = "lastIdx"; // name kept so a value saved by older firmware still loads
 }
 
 void Settings::begin() {
@@ -35,10 +35,10 @@ void Settings::setAmpAddress(const String& address, uint8_t addressType) {
   prefs.putUChar(KEY_AMP_ADDR_TYPE, addressType);
 }
 
-uint16_t Settings::getLastActiveIndex() const {
-  return prefs.getUShort(KEY_LAST_IDX, 0xFFFF);
+uint16_t Settings::getLastActiveSlot() const {
+  return prefs.getUShort(KEY_LAST_SLOT, 0xFFFF);
 }
 
-void Settings::setLastActiveIndex(uint16_t index) {
-  prefs.putUShort(KEY_LAST_IDX, index);
+void Settings::setLastActiveSlot(uint16_t slot) {
+  prefs.putUShort(KEY_LAST_SLOT, slot);
 }

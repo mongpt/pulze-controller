@@ -35,11 +35,13 @@
     <div class="panel__header">
       <h2 class="panel__title">Favorites</h2>
       <div class="panel__header-actions">
+        <button id="addPageBtn" class="btn btn--small btn--outline">Add page</button>
         <button id="connectFootswitchBtn" class="btn btn--small btn--outline">Connect to Footswitch</button>
         <button id="transferBtn" class="btn btn--small btn--outline">Transfer to Footswitch</button>
       </div>
     </div>
     <div class="patch-grid" id="favoriteList"></div>
+    <div class="fav-pages" id="favoritePagesList"></div>
   </section>
 
   <main class="rack__body">
@@ -89,6 +91,7 @@
   </main>
 </div>
 
+<script src="favoritePages.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

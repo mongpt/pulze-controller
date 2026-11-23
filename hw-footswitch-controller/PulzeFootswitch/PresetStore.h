@@ -1,17 +1,23 @@
 // ---------------------------------------------------------------------
 // PresetStore.h - the on-flash preset library (LittleFS-backed).
 //
-// On-disk format (/presets.bin), chosen to be trivial to append to
-// during a transfer and trivial to scan sequentially at boot:
+// The library holds each distinct preset once. A PageLayout then says
+// which presets sit on which page and on which footswitch, so a preset
+// can appear on several pages without being stored twice.
+//
+// On-disk format (/presets.bin), chosen to be trivial to scan
+// sequentially at boot:
 //
 //   [uint16 count]
 //   repeated `count` times:
 //     [uint16 nameLen][nameLen bytes name, UTF-8][194 bytes packet2]
+//   [uint8 pageCount]
+//   repeated `pageCount` times:
+//     [uint8 slotCount][slotCount x uint16 presetIndex]
 //
-// This mirrors the in-memory record shape used by the web app's
-// transfer protocol (BleTransfer.cpp parses directly into this same
-// shape), so receiving a transfer is really just "append records,
-// then rewrite the count header."
+// The page table is the same byte layout the web app sends (see
+// config.h). A file with no page table loads as pages of four presets
+// in library order.
 // ---------------------------------------------------------------------
 
 #pragma once
@@ -24,26 +30,39 @@ struct Preset {
   uint8_t packet2[PACKET2_LEN];
 };
 
+// Which preset sits on which footswitch of which page. Slot n of a
+// page is footswitch n+1, and a page has no gaps.
+struct PageLayout {
+  uint8_t pageCount;
+  uint8_t slotCount[MAX_PAGES];
+  uint16_t presetIndex[MAX_PAGES][PRESETS_PER_BANK]; // PRESET_NONE past slotCount
+
+  void clear();
+  void fillSequentially(uint16_t presetCount); // pages of four, in library order
+  bool refersOnlyTo(uint16_t presetCount) const; // every presetIndex < presetCount
+};
+
 class PresetStore {
 public:
   bool begin();                          // mounts LittleFS, loads the library into RAM
-  uint16_t count() const;
+  uint16_t count() const;                // distinct presets in the library
   const Preset* get(uint16_t index) const; // nullptr if out of range
 
-  // Bank/footswitch math - the only place this calculation happens.
-  // bank = index / PRESETS_PER_BANK, offset = index % PRESETS_PER_BANK.
-  uint16_t totalBanks() const;
+  uint16_t totalBanks() const;           // number of pages
+  // Library index of the preset on this page and footswitch (offset 0
+  // is footswitch 1), or PRESET_NONE when that footswitch is empty.
+  uint16_t presetIndexAt(uint16_t bank, uint8_t offset) const;
   const Preset* getByBankAndOffset(uint16_t bank, uint8_t offset) const;
 
-  // Replaces the ENTIRE library with a freshly-received one and
-  // persists it to flash. Used once per transfer, not per-preset -
-  // this is the only write path, keeping flash wear minimal.
-  bool replaceAll(const Preset* newPresets, uint16_t newCount);
+  // Replaces the ENTIRE library and its page layout with a freshly
+  // received one and persists it to flash. Used once per transfer, not
+  // per-preset - this is the only write path, keeping flash wear minimal.
+  bool replaceAll(const Preset* newPresets, uint16_t newCount, const PageLayout& newLayout);
 
 private:
-  static const uint16_t MAX_PRESETS = 256; // sized generously; RAM cost is small per entry
-  Preset _presets[MAX_PRESETS];
+  Preset _presets[MAX_LIBRARY_PRESETS];
   uint16_t _count = 0;
+  PageLayout _layout;
 
   bool loadFromFlash();
   bool saveToFlash();

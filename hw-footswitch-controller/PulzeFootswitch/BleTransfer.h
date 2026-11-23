@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------
 // BleTransfer.h - BLE PERIPHERAL role: advertises FOOTSWITCH_SERVICE_UUID
 // continuously from boot so the web app can find and connect to this
-// device at any time, receives a full preset library over the v2
+// device at any time, receives a full preset library over the v3
 // chunked protocol (see config.h), and saves it into PresetStore on
 // completion.
 //
@@ -16,19 +16,26 @@
 #include <Arduino.h>
 #include "PresetStore.h"
 
+// A fully parsed transfer: the distinct presets plus the page layout
+// that places them on footswitches.
+struct ParsedLibrary {
+  Preset presets[MAX_LIBRARY_PRESETS];
+  uint16_t presetCount;
+  PageLayout layout;
+};
+
 // Pure parsing logic, exposed separately from the BLE plumbing so it
-// can be unit-tested on a desktop compiler without any BLE stack or
-// hardware involved - see host_test/test_transfer_parser.cpp.
+// has no BLE stack or hardware dependency.
 //
 // Parses `buffer` (the raw accumulated DATA payload bytes, in receive
-// order) as exactly `count` back-to-back records of
-// [nameLen u16 LE][name bytes][194-byte packet2], writing up to
-// `maxOut` results into `out`. Returns the number of presets actually
-// parsed, or -1 on a malformed/truncated buffer.
-int parseTransferBuffer(
+// order): the page table, then exactly `declaredCount` preset records.
+// The byte layout is documented in config.h. Returns false on a
+// malformed, truncated, or over-long buffer. `out` is only complete
+// when this returns true.
+bool parseTransferBuffer(
   const uint8_t* buffer, size_t bufferLen,
-  uint16_t count,
-  Preset* out, uint16_t maxOut
+  uint16_t declaredCount,
+  ParsedLibrary& out
 );
 
 class BleTransfer {

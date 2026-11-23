@@ -51,6 +51,10 @@ public:
   bool connect();       // tries known address first, falls back to a scan
   void disconnect();
 
+  // True once after the amp link drops without a Connect press.
+  // The BLE task uses this to resume app advertising.
+  bool consumeLinkLoss();
+
   // Sends the full recall sequence for this preset - same 100ms/300ms
   // gaps as the Python/web versions, since that's inherent to how the
   // amp processes a full patch load. If the tuner is on it is turned
@@ -64,7 +68,9 @@ public:
   void onDisconnected(); // called by the NimBLE client callback
 
 private:
-  AmpConnState _state = AmpConnState::DISCONNECTED;
+  // Written from the NimBLE callback task and read from the UI task.
+  volatile AmpConnState _state = AmpConnState::DISCONNECTED;
+  volatile bool _linkLost = false;
   uint8_t _seq = 0x2c;
   bool _tunerOn = false;
 

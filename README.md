@@ -31,8 +31,8 @@ You can add that page to the phone's home screen for a one-tap launch.
 
 **Other options** if you want a local copy:
 
-- **Host it yourself** - upload `index.html`, `style.css`, and `app.js`
-  to any static host (GitHub Pages works).
+- **Host it yourself** - upload `index.html`, `style.css`,
+  `favoritePages.js`, and `app.js` to any static host (GitHub Pages works).
 - **Serve it from the phone, fully offline** - install
   [Termux](https://f-droid.org/packages/com.termux/) from F-Droid, then:
 
@@ -81,10 +81,20 @@ saved preset and is never sent to the footswitch.
 
 ### Favorites and the library
 
-- Tap the star on a patch to pin it in **Favorites**. Order is the
-  order you starred them (that order is what the footswitch uses).
-- Tap the star again to unpin. The trash icon in Patches deletes a
-  patch permanently.
+- **Favorites** is a list of **pages**. Each page has four cells, FW1
+  to FW4, one for each preset switch on the footswitch. A page fills
+  from FW1, so a page with two presets leaves FW3 and FW4 empty.
+- Tap **Add page** to add a page. Tap **Remove page** to remove one.
+  The presets stay in your library.
+- On a page, use **+ Add preset** to put a preset in the next free
+  cell. Move a preset with the ◀ ▶ buttons on its tile, or drag it to
+  another cell or page. Tap ✕ on a tile to take it off the page.
+- One preset can be on more than one page. It can be on a page only
+  once.
+- The star on a patch is a shortcut. It adds the patch to the last
+  page (a new page opens if that page is full). Tap the star again to
+  take the patch off every page.
+- The trash icon in Patches deletes a patch permanently.
 - **Reset to defaults** replaces the whole library with the built-in
   16 patches. Export first if you want to keep your work.
 
@@ -108,8 +118,9 @@ The footswitch is a **different** Bluetooth device from the amp. The
 app can be connected to both independently, but the footswitch itself
 will not connect to the amp while the app is still attached to it.
 
-1. Star patches in the order you want on the switches: 1st favorite →
-   switch 1 / page 1, 2nd → switch 2 / page 1, … 5th → switch 1 / page 2.
+1. Build your pages in **Favorites** (see above). Each cell on a page
+   is the same switch on the footswitch. Remove or fill empty pages:
+   the transfer stops if a page is empty.
 2. Tap **Connect to Footswitch** and pick **Pulze Footswitch**.
 3. Tap **Transfer to Footswitch**. That replaces the whole library on
    the device (it does not merge).
@@ -234,15 +245,18 @@ and is not transferred to the footswitch.
 ```json
 {
   "presets": [
-    { "id": "uuid", "name": "Category|Title", "packet2": "<388 hex chars>", "favorite": true }
+    { "id": "uuid", "name": "Category|Title", "packet2": "<388 hex chars>" }
   ],
-  "favoritesOrder": ["uuid", "..."]
+  "favoritePages": [["uuid", "uuid"], ["uuid"]]
 }
 ```
 
-`packet2` is 194 bytes encoded as 388 hex characters. `favoritesOrder`
-is add-order, not alphabetical (the Patches list is sorted by name).
-Older files that are a bare array of `{ name, packet2 }` still import.
+`packet2` is 194 bytes encoded as 388 hex characters. Each entry of
+`favoritePages` is one page: up to four preset ids, where position is
+the footswitch (first id = FW1). Layout rules are in
+[`favoritePages.js`](favoritePages.js). Older files import too: a bare
+array of `{ name, packet2 }`, or `{ presets, favoritesOrder }`. Those
+become pages of four, in their old order.
 
 ### Custom BLE protocol: app → footswitch
 
@@ -255,25 +269,29 @@ browser can push a library without going through the amp.
 | Transfer characteristic | `e6f80002-b5f0-4eea-9a1e-31b0d6cfa930` |
 
 Writes use **Write With Response** (so order is acknowledged). Each
-write starts with a type tag (v2 - a magic first data byte was
-ambiguous because payload bytes are arbitrary):
+write starts with a type tag (a magic first data byte was
+ambiguous because payload bytes are arbitrary). This is protocol v3:
 
 | Tag | Message |
 | --- | --- |
-| `0x01` | START: `[0x01, countLo, countHi]` little-endian preset count |
+| `0x01` | START: `[0x01, countLo, countHi]` little-endian count of **distinct** presets |
 | `0x02` | DATA: `[0x02, ...up to 17 payload bytes]` - concatenate in order |
 | `0x03` | END: `[0x03]` - parse the buffer now |
 
 Max write length is **18 bytes** including the tag (safe default ATT
-payload). After END, the buffer is `count` records back-to-back:
+payload). After END, the buffer is a page table followed by `count`
+records back-to-back:
 
 ```
-[nameLenLo, nameLenHi, ...UTF-8 name..., ...194-byte packet2...]
+page table: [pageCount, then per page: slotCount (0-4), slotCount x uint16 LE record index]
+record:     [nameLenLo, nameLenHi, ...UTF-8 name..., ...194-byte packet2...]
 ```
 
-Record 0 → footswitch 1 / page 0, record 1 → switch 2 / page 0, …
-`page = floor(i / 4)`, `switch = i % 4`. Each transfer **replaces**
-the stored library.
+Slot n of a page is footswitch n+1. A record index points at one of
+the records, so a preset used on several pages is sent once. Records
+are in order of first use. The footswitch rejects the transfer if any
+bytes are left over after the last record. Each transfer **replaces**
+the stored library and its pages.
 
 The footswitch is a BLE **peripheral** toward the app and a BLE
 **central** toward the amp. This project does not use both roles at
@@ -284,5 +302,6 @@ once: disconnect the app before the hardware connects to the amp.
 | File | What it encodes |
 | --- | --- |
 | `app.js` | Web Bluetooth connect, CC helpers, dump/recall, capture, tuner, footswitch transfer |
+| `favoritePages.js` | Favorites page layout rules and the transfer page table |
 | `hw-footswitch-controller/BleAmp.cpp` | Native BLE-MIDI client, MTU 247, address-type handling |
 | `hw-footswitch-controller/BleTransfer.cpp` / `TransferParser.cpp` | Receiver for the tagged stream above |

@@ -55,33 +55,44 @@ struct BleRequest {
   uint16_t presetIndex;
 };
 
-static const uint16_t NO_PRESET = 0xFFFF;
+static const uint16_t NO_PRESET = PRESET_NONE;
+static const uint16_t NO_SLOT = 0xFFFF;
 
 static QueueHandle_t bleRequestQueue;
+
+// A "slot" is one footswitch on one page, saved as a single number.
+// Requests to the BLE task use the library index of the preset on it.
+static uint16_t slotCode(uint16_t bank, uint8_t offset) {
+  return (uint16_t)(bank * PRESETS_PER_BANK + offset);
+}
+
+static uint16_t presetIndexForSlot(uint16_t slot) {
+  return presetStore.presetIndexAt(slot / PRESETS_PER_BANK, slot % PRESETS_PER_BANK);
+}
 
 // The preset the footswitch is actually on. The lit LED is updated
 // immediately, but the NVS copy waits LAST_USED_SETTLE_MS, so a connect
 // that reads only NVS can send nothing or an older preset.
 static uint16_t currentPresetIndex(uint16_t activeBank, uint8_t activeOffset, bool haveActive) {
   if (haveActive) {
-    return (uint16_t)activeBank * PRESETS_PER_BANK + activeOffset;
+    return presetStore.presetIndexAt(activeBank, activeOffset);
   }
 
-  uint16_t saved = settings.getLastActiveIndex();
-  if (saved != 0xFFFF && saved < presetStore.count()) return saved;
-  return NO_PRESET;
+  uint16_t saved = settings.getLastActiveSlot();
+  if (saved == NO_SLOT) return NO_PRESET;
+  return presetIndexForSlot(saved);
 }
 
-// Recomputes bank/offset/haveActive from settings' remembered index,
-// bounds-checked against the CURRENT library. Used both at boot and
-// after a transfer replaces the library (where the old in-memory
-// bank/offset could otherwise point at a bank/preset that no longer
-// exists, or no longer means what it used to, in the new library).
+// Recomputes bank/offset/haveActive from settings' remembered slot,
+// checked against the CURRENT library. Used both at boot and after a
+// transfer replaces the library (where the old in-memory bank/offset
+// could otherwise point at a page or footswitch that is now empty, or
+// that holds a different preset in the new layout).
 static void loadActivePresetState(uint16_t& bank, uint8_t& activeOffset, bool& haveActive) {
-  uint16_t lastIdx = settings.getLastActiveIndex();
-  if (lastIdx != 0xFFFF && presetStore.count() > 0 && lastIdx < presetStore.count()) {
-    bank = lastIdx / PRESETS_PER_BANK;
-    activeOffset = lastIdx % PRESETS_PER_BANK;
+  uint16_t lastSlot = settings.getLastActiveSlot();
+  if (lastSlot != NO_SLOT && presetIndexForSlot(lastSlot) != NO_PRESET) {
+    bank = lastSlot / PRESETS_PER_BANK;
+    activeOffset = lastSlot % PRESETS_PER_BANK;
     haveActive = true;
   } else {
     bank = 0;
@@ -97,7 +108,12 @@ static void bleTaskFn(void* /*param*/) {
 
   BleRequest req;
   for (;;) {
-    if (xQueueReceive(bleRequestQueue, &req, portMAX_DELAY) != pdTRUE) continue;
+    if (bleAmp.consumeLinkLoss()) {
+      Serial.println("[main] amp dropped, resuming app advertising");
+      bleTransfer.resumeAdvertising();
+    }
+
+    if (xQueueReceive(bleRequestQueue, &req, pdMS_TO_TICKS(250)) != pdTRUE) continue;
 
     switch (req.type) {
       case BleRequestType::CONNECT_AMP: {
@@ -163,7 +179,7 @@ static void uiTaskFn(void* /*param*/) {
   loadActivePresetState(bank, activeOffset, haveActive);
   // Tracks which bank the active preset actually lives in, updated
   // instantly on every press - deliberately NOT derived from
-  // settings.getLastActiveIndex() during the session, since that NVS
+  // settings.getLastActiveSlot() during the session, since that NVS
   // write is now debounced (see LAST_USED_SETTLE_MS) and would be
   // stale for up to LAST_USED_SETTLE_MS after a press. NVS is only the
   // source of truth at boot; during a running session, this in-memory value is.
@@ -188,8 +204,8 @@ static void uiTaskFn(void* /*param*/) {
   // no further footswitch change, so rapid switching doesn't write to
   // NVS on every single press or leave "last used" pointing at
   // something only briefly passed through.
-  uint16_t pendingLastIdx = 0xFFFF;
-  unsigned long pendingLastIdxSince = 0;
+  uint16_t pendingLastSlot = NO_SLOT;
+  unsigned long pendingLastSlotSince = 0;
 
   for (;;) {
     buttons.update();
@@ -220,19 +236,17 @@ static void uiTaskFn(void* /*param*/) {
     // immediate NVS write.
     for (uint8_t i = 0; i < 4; i++) {
       if (buttons.wasPressed(fwButtons[i])) {
-        const Preset* p = presetStore.getByBankAndOffset(bank, i);
-        if (p) {
-          uint16_t idx = (uint16_t)bank * PRESETS_PER_BANK + i;
-
-          BleRequest req{ BleRequestType::PLAY_PRESET, idx };
+        uint16_t presetIndex = presetStore.presetIndexAt(bank, i);
+        if (presetIndex != NO_PRESET) { // an empty footswitch does nothing
+          BleRequest req{ BleRequestType::PLAY_PRESET, presetIndex };
           xQueueSend(bleRequestQueue, &req, 0);
 
           activeOffset = i;
           activeBank = bank;
           haveActive = true;
 
-          pendingLastIdx = idx;
-          pendingLastIdxSince = millis();
+          pendingLastSlot = slotCode(bank, i);
+          pendingLastSlotSince = millis();
         }
       }
     }
@@ -257,9 +271,7 @@ static void uiTaskFn(void* /*param*/) {
     // Does nothing while disconnected - there's no amp to send to.
     if (buttons.wasPressed(ButtonId::TUNER)) {
       if (bleAmp.isConnected()) {
-        uint16_t recallIdx = haveActive
-          ? (uint16_t)activeBank * PRESETS_PER_BANK + activeOffset
-          : NO_PRESET;
+        uint16_t recallIdx = currentPresetIndex(activeBank, activeOffset, haveActive);
         BleRequest req{ BleRequestType::TOGGLE_TUNER, recallIdx };
         xQueueSend(bleRequestQueue, &req, 0);
       } else {
@@ -269,10 +281,11 @@ static void uiTaskFn(void* /*param*/) {
 
     // Commit "last used" to NVS once it's settled (no further
     // footswitch change for LAST_USED_SETTLE_MS).
-    if (pendingLastIdx != 0xFFFF && (millis() - pendingLastIdxSince) >= LAST_USED_SETTLE_MS) {
-      settings.setLastActiveIndex(pendingLastIdx);
-      Serial.printf("[main] last-used preset settled and saved: index %u\n", pendingLastIdx);
-      pendingLastIdx = 0xFFFF;
+    if (pendingLastSlot != NO_SLOT && (millis() - pendingLastSlotSince) >= LAST_USED_SETTLE_MS) {
+      settings.setLastActiveSlot(pendingLastSlot);
+      Serial.printf("[main] last-used preset settled and saved: page %u, footswitch %u\n",
+                    pendingLastSlot / PRESETS_PER_BANK + 1, pendingLastSlot % PRESETS_PER_BANK + 1);
+      pendingLastSlot = NO_SLOT;
     }
 
     // A transfer just finished - show a brief confirmation, then reset

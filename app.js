@@ -62,6 +62,8 @@ const nextBtn = document.getElementById("nextBtn");
 const patchList = document.getElementById("patchList");
 const patchEmpty = document.getElementById("patchEmpty");
 const favoriteList = document.getElementById("favoriteList");
+const favoritePagesList = document.getElementById("favoritePagesList");
+const addPageBtn = document.getElementById("addPageBtn");
 
 const captureStatus = document.getElementById("captureStatus");
 const nameInput = document.getElementById("nameInput");
@@ -94,9 +96,10 @@ let fsCharacteristic = null;
 let capturePacket2 = null; // Uint8Array
 let capturePacket3 = null; // Uint8Array
 
-let { presets, favoritesOrder } = loadState();
+let { presets, favoritePages } = loadState();
 sortPresets();
 let activeIndex = null;
+let dragSource = null; // { page, slot } of the favorite being dragged
 let tunerActive = false;
 let seq = 0x2c;
 
@@ -141,24 +144,31 @@ function ensureIds(list) {
 }
 
 // Normalizes any of the shapes this app has ever saved into
-// { presets, favoritesOrder }:
+// { presets, favoritePages }:
 //  - a bare array (original format, no ids, favorite was just a bool
-//    with no memory of order) - order is reconstructed as best-effort
-//    (whatever order they appear in), since true add-order was never
-//    recorded in that format.
-//  - { presets, favoritesOrder } (current format).
+//    with no memory of order).
+//  - { presets, favoritesOrder } (one flat favorites list).
+//  - { presets, favoritePages } (current format).
+// The two older formats become pages of four, in list order.
 function normalizeState(parsed) {
-  if (Array.isArray(parsed)) {
-    const list = ensureIds(parsed);
-    const order = list.filter(p => p.favorite).map(p => p.id);
-    return { presets: list, favoritesOrder: order };
-  }
-  const list = ensureIds(parsed.presets || []);
+  const list = ensureIds(Array.isArray(parsed) ? parsed : (parsed.presets || []));
   const validIds = new Set(list.map(p => p.id));
-  const order = Array.isArray(parsed.favoritesOrder)
-    ? parsed.favoritesOrder.filter(id => validIds.has(id))
-    : list.filter(p => p.favorite).map(p => p.id);
-  return { presets: list, favoritesOrder: order };
+
+  const pages = Array.isArray(parsed.favoritePages)
+    ? sanitizePages(parsed.favoritePages, validIds)
+    : pagesFromOrder(legacyFavoriteOrder(parsed, list, validIds));
+
+  // Favorites now live only on pages; the per-preset flag is obsolete.
+  list.forEach(p => { delete p.favorite; });
+  return { presets: list, favoritePages: pages };
+}
+
+function legacyFavoriteOrder(parsed, list, validIds) {
+  if (Array.isArray(parsed.favoritesOrder)) {
+    return parsed.favoritesOrder.filter(id => validIds.has(id));
+  }
+  // No recorded order: fall back to list order.
+  return list.filter(p => p.favorite).map(p => p.id);
 }
 
 function loadState() {
@@ -175,11 +185,11 @@ function loadState() {
   // or overwriting a freshly-seeded preset would silently mutate the
   // constant itself.
   const seeded = ensureIds(DEFAULT_PRESETS.map(p => ({ ...p })));
-  return { presets: seeded, favoritesOrder: [] };
+  return { presets: seeded, favoritePages: [] };
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ presets, favoritesOrder }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ presets, favoritePages }));
 }
 
 function sortPresets() {
@@ -244,11 +254,15 @@ function createPatchTile(preset, index, { showDelete = false } = {}) {
     icons.appendChild(delBtn);
   }
 
+  const isFavorite = isPresetOnAnyPage(favoritePages, preset.id);
   const favBtn = document.createElement("button");
   favBtn.type = "button";
-  favBtn.className = "patch-tile__fav" + (preset.favorite ? " patch-tile__fav--on" : "");
-  favBtn.setAttribute("aria-label", preset.favorite ? "Remove from favorites" : "Add to favorites");
-  favBtn.textContent = preset.favorite ? "★" : "☆";
+  favBtn.className = "patch-tile__fav" + (isFavorite ? " patch-tile__fav--on" : "");
+  favBtn.setAttribute(
+    "aria-label",
+    isFavorite ? "Remove from all favorite pages" : "Add to the last favorite page"
+  );
+  favBtn.textContent = isFavorite ? "★" : "☆";
   favBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     toggleFavorite(index);
@@ -262,20 +276,25 @@ function createPatchTile(preset, index, { showDelete = false } = {}) {
 
   tile.appendChild(icons);
   tile.appendChild(nameSpan);
+  attachPlayTrigger(tile, index);
 
+  return tile;
+}
+
+function attachPlayTrigger(tile, index) {
   const trigger = () => {
     tile.classList.add("patch-tile--sending");
     playPreset(index).finally(() => tile.classList.remove("patch-tile--sending"));
   };
   tile.addEventListener("click", trigger);
   tile.addEventListener("keydown", (e) => {
+    // Enter on a button inside the tile must press that button, not play.
+    if (e.target !== tile) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       trigger();
     }
   });
-
-  return tile;
 }
 
 function createTunerTile() {
@@ -314,7 +333,7 @@ function deletePreset(index) {
   }
 
   presets.splice(index, 1);
-  favoritesOrder = favoritesOrder.filter(id => id !== preset.id);
+  favoritePages = removePresetFromAllPages(favoritePages, preset.id);
 
   // Every index after the deleted one shifts down by one - keep the
   // active-patch highlight pointing at the right entry, or clear it if
@@ -330,25 +349,25 @@ function deletePreset(index) {
   log(`Deleted: ${preset.name}`);
 }
 
+// The star is a shortcut: it puts the preset on the last favorite page,
+// or takes it off every page. Use the page controls for anything finer.
 function toggleFavorite(index) {
   const preset = presets[index];
   if (!preset) return;
 
-  preset.favorite = !preset.favorite;
-
-  if (preset.favorite) {
-    // Newly favorited - goes to the END of the add-order list, so the
-    // Favorites panel (and later, the footswitch transfer) reflects the
-    // order things were actually favorited in, not alphabetical order.
-    if (!favoritesOrder.includes(preset.id)) {
-      favoritesOrder.push(preset.id);
-    }
-  } else {
-    favoritesOrder = favoritesOrder.filter(id => id !== preset.id);
+  if (isPresetOnAnyPage(favoritePages, preset.id)) {
+    commitFavoritePages(removePresetFromAllPages(favoritePages, preset.id));
+    log(`Removed from all favorite pages: ${preset.name}`);
+    return;
   }
 
-  saveState();
-  renderPatches();
+  const updated = appendToLastPage(favoritePages, preset.id);
+  if (!updated) {
+    alert(`All ${MAX_FAVORITE_PAGES} favorite pages are full.`);
+    return;
+  }
+  commitFavoritePages(updated);
+  log(`Added to page ${updated.length}: ${preset.name}`);
 }
 
 function renderPatches() {
@@ -359,12 +378,7 @@ function renderPatches() {
     presets.forEach((p, i) => patchList.appendChild(createPatchTile(p, i, { showDelete: true })));
   }
 
-  favoriteList.innerHTML = "";
-  favoriteList.appendChild(createTunerTile());
-  const favIndices = favoritesOrder
-    .map(id => presets.findIndex(p => p.id === id))
-    .filter(i => i !== -1);
-  favIndices.forEach(i => favoriteList.appendChild(createPatchTile(presets[i], i)));
+  renderFavorites();
 
   const prevValue = slotSelect.value;
   slotSelect.innerHTML = `<option value="">New slot (${presets.length})</option>`;
@@ -377,6 +391,225 @@ function renderPatches() {
   if ([...slotSelect.options].some(o => o.value === prevValue)) {
     slotSelect.value = prevValue;
   }
+}
+
+// ---- favorite pages -----------------------------------------------------
+//
+// Each page shows four footswitch cells (FW1-FW4). A page fills from FW1,
+// so a page with two presets leaves FW3 and FW4 empty. Presets can be
+// reordered with the arrow buttons or by dragging, and the same preset
+// can sit on more than one page.
+
+function commitFavoritePages(updated) {
+  favoritePages = updated;
+  saveState();
+  renderPatches();
+}
+
+function moveFavorite(from, to) {
+  const updated = movePreset(favoritePages, from, to);
+  if (!updated) {
+    log("Can't move there: that page is full or already has this preset.");
+    return;
+  }
+  commitFavoritePages(updated);
+}
+
+function renderFavorites() {
+  favoriteList.innerHTML = "";
+  favoriteList.appendChild(createTunerTile());
+
+  favoritePagesList.innerHTML = "";
+  if (favoritePages.length === 0) {
+    favoritePagesList.appendChild(createNoPagesHint());
+  }
+  favoritePages.forEach((page, pageIndex) => {
+    favoritePagesList.appendChild(createFavoritePage(page, pageIndex));
+  });
+
+  addPageBtn.disabled = favoritePages.length >= MAX_FAVORITE_PAGES;
+}
+
+function createNoPagesHint() {
+  const hint = document.createElement("p");
+  hint.className = "patch-list__empty";
+  hint.textContent = 'No favorite pages yet - tap "Add page", or star a patch.';
+  return hint;
+}
+
+function createFavoritePage(page, pageIndex) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "fav-page";
+
+  const header = document.createElement("div");
+  header.className = "fav-page__header";
+
+  const title = document.createElement("span");
+  title.className = "fav-page__title";
+  title.textContent = `Page ${pageIndex + 1}`;
+
+  header.append(title, createAddPresetSelect(page, pageIndex), createRemovePageButton(pageIndex));
+
+  const slots = document.createElement("div");
+  slots.className = "fav-page__slots";
+  for (let slot = 0; slot < FAVORITE_SLOTS_PER_PAGE; slot++) {
+    slots.appendChild(createFavoriteSlot(page, { page: pageIndex, slot }));
+  }
+
+  wrapper.append(header, slots);
+  return wrapper;
+}
+
+function createAddPresetSelect(page, pageIndex) {
+  const select = document.createElement("select");
+  select.className = "select fav-page__add";
+  select.setAttribute("aria-label", `Add a preset to page ${pageIndex + 1}`);
+  select.disabled = page.length >= FAVORITE_SLOTS_PER_PAGE;
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = select.disabled ? "Page full" : "+ Add preset";
+  select.appendChild(placeholder);
+
+  presets.filter(p => !page.includes(p.id)).forEach(p => {
+    const option = document.createElement("option");
+    option.value = p.id;
+    option.textContent = p.name;
+    select.appendChild(option);
+  });
+
+  select.addEventListener("change", () => {
+    if (!select.value) return;
+    const updated = addPresetToPage(favoritePages, pageIndex, select.value);
+    if (updated) commitFavoritePages(updated);
+  });
+  return select;
+}
+
+function createRemovePageButton(pageIndex) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn btn--small btn--outline";
+  button.textContent = "Remove page";
+  button.setAttribute("aria-label", `Remove page ${pageIndex + 1}`);
+  button.addEventListener("click", () => removeFavoritePage(pageIndex));
+  return button;
+}
+
+function removeFavoritePage(pageIndex) {
+  const hasPresets = favoritePages[pageIndex].length > 0;
+  if (hasPresets && !confirm(`Remove page ${pageIndex + 1}? Its presets stay in your library.`)) {
+    return;
+  }
+  commitFavoritePages(removePage(favoritePages, pageIndex));
+  log(`Removed page ${pageIndex + 1}.`);
+}
+
+function createFavoriteSlot(page, position) {
+  const cell = document.createElement("div");
+  cell.className = "fav-slot";
+
+  const label = document.createElement("span");
+  label.className = "fav-slot__label";
+  label.textContent = `FW${position.slot + 1}`;
+  cell.appendChild(label);
+
+  const presetIndex = presets.findIndex(p => p.id === page[position.slot]);
+  if (presetIndex === -1) {
+    cell.classList.add("fav-slot--empty");
+    cell.appendChild(document.createTextNode("empty"));
+  } else {
+    cell.appendChild(createFavoriteTile(presetIndex, position, page.length));
+  }
+
+  attachDropTarget(cell, position);
+  return cell;
+}
+
+function createFavoriteTile(presetIndex, position, pageLength) {
+  const preset = presets[presetIndex];
+  const { page, slot } = position;
+
+  const tile = document.createElement("div");
+  tile.className = "patch-tile" + (presetIndex === activeIndex && !tunerActive ? " patch-tile--active" : "");
+  tile.setAttribute("role", "button");
+  tile.tabIndex = 0;
+  tile.draggable = true;
+
+  const moveEarlier = createFavoriteTileButton(
+    `Move ${preset.name} to the previous footswitch`, "◀",
+    () => moveFavorite(position, { page, slot: slot - 1 })
+  );
+  moveEarlier.disabled = slot === 0;
+
+  const moveLater = createFavoriteTileButton(
+    `Move ${preset.name} to the next footswitch`, "▶",
+    () => moveFavorite(position, { page, slot: slot + 1 })
+  );
+  moveLater.disabled = slot === pageLength - 1;
+
+  const remove = createFavoriteTileButton(
+    `Remove ${preset.name} from page ${page + 1}`, "✕",
+    () => commitFavoritePages(removePresetFromPage(favoritePages, page, slot))
+  );
+  remove.classList.add("fav-tile__btn--remove");
+
+  const controls = document.createElement("div");
+  controls.className = "fav-tile__controls";
+  controls.append(moveEarlier, moveLater, remove);
+
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "patch-tile__name";
+  nameSpan.textContent = preset.name;
+
+  tile.append(controls, nameSpan);
+  attachPlayTrigger(tile, presetIndex);
+  attachDragSource(tile, position);
+  return tile;
+}
+
+function createFavoriteTileButton(label, text, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "fav-tile__btn";
+  button.setAttribute("aria-label", label);
+  button.textContent = text;
+  button.addEventListener("click", (e) => {
+    e.stopPropagation(); // the tile itself plays the preset on click
+    onClick();
+  });
+  return button;
+}
+
+function attachDragSource(tile, position) {
+  tile.addEventListener("dragstart", (e) => {
+    dragSource = position;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "favorite"); // some browsers need data to start a drag
+    tile.classList.add("patch-tile--dragging");
+  });
+  tile.addEventListener("dragend", () => {
+    dragSource = null;
+    tile.classList.remove("patch-tile--dragging");
+  });
+}
+
+function attachDropTarget(cell, position) {
+  cell.addEventListener("dragover", (e) => {
+    if (!dragSource) return;
+    e.preventDefault(); // marks this cell as a valid drop target
+    cell.classList.add("fav-slot--over");
+  });
+  cell.addEventListener("dragleave", () => cell.classList.remove("fav-slot--over"));
+  cell.addEventListener("drop", (e) => {
+    e.preventDefault();
+    cell.classList.remove("fav-slot--over");
+    if (!dragSource) return;
+
+    const from = dragSource;
+    dragSource = null;
+    moveFavorite(from, position);
+  });
 }
 
 function renderCaptureStatus(ready) {
@@ -578,8 +811,7 @@ function savePreset(name, slot) {
 
   let logMsg;
   if (slot !== null && slot >= 0 && slot < presets.length) {
-    entry.id = presets[slot].id; // keep identity so favoritesOrder still finds it after a rename
-    entry.favorite = presets[slot].favorite; // carry favorite status over when overwriting
+    entry.id = presets[slot].id; // keep identity so the favorite pages still find it after a rename
     presets[slot] = entry;
     logMsg = `Overwrote: ${name}`;
   } else {
@@ -608,7 +840,7 @@ function savePreset(name, slot) {
 // disconnect, then the footswitch separately connects to the amp on its
 // own (as a BLE central) to actually recall presets live.
 //
-// WIRE PROTOCOL (v2) - this is the spec the ESP32 firmware implements
+// WIRE PROTOCOL (v3) - this is the spec the ESP32 firmware implements
 // on the receiving end (see BleTransfer.cpp / TransferParser.cpp).
 //
 // Everything is written to FOOTSWITCH_CHAR_UUID using writeValueWithResponse
@@ -626,7 +858,7 @@ function savePreset(name, slot) {
 // misread as a control message. v2 fixes this properly.)
 //
 //   START: [0x01, countLo, countHi]  - countLo/Hi = little-endian
-//          uint16 total preset count about to be sent. (3 bytes)
+//          uint16 count of DISTINCT presets about to be sent. (3 bytes)
 //   DATA:  [0x02, ...up to 17 payload bytes]  - firmware strips the tag
 //          and appends the remaining bytes, in order, to one growing
 //          receive buffer. Chunk boundaries carry no meaning of their
@@ -634,24 +866,24 @@ function savePreset(name, slot) {
 //   END:   [0x03]  - signals "the full stream has been sent, parse it
 //          now." (1 byte)
 //
-// Once END arrives, the firmware parses the accumulated buffer as exactly
-// `count` back-to-back records, each shaped:
-//   [nameLenLo, nameLenHi, ...nameBytes (UTF-8, nameLenLo/Hi bytes long),
-//    ...packet2 (always exactly 194 bytes)]
-//
-// Presets arrive in Favorites add-order (favoritesOrder), which is exactly
-// the order they should be assigned to footswitches/banks: record 0 ->
-// fw1/bank0, record 1 -> fw2/bank0, record 2 -> fw3/bank0, record 3 ->
-// fw4/bank0, record 4 -> fw1/bank1, and so on (bank = floor(i / 4),
-// fw = i % 4) - the firmware does this math, nothing bank-specific is
-// sent over the wire.
+// Once END arrives, the firmware parses the accumulated buffer as:
+//   1. a page table:
+//        [pageCount, then per page: slotCount (0-4),
+//         then slotCount uint16 little-endian record indexes]
+//      Slot n of a page is footswitch n+1. A record index points into
+//      the records below, so a preset used on several pages is sent once.
+//   2. exactly `count` back-to-back records, each shaped:
+//        [nameLenLo, nameLenHi, ...nameBytes (UTF-8, nameLenLo/Hi bytes long),
+//         ...packet2 (always exactly 194 bytes)]
+// Records come in order of first use on the pages (see buildTransferLayout).
+// The firmware rejects the transfer if any bytes are left over.
 
 const FS_MSG_START = 0x01;
 const FS_MSG_DATA = 0x02;
 const FS_MSG_END = 0x03;
 const FOOTSWITCH_MAX_WRITE_LEN = 18; // total bytes per write, tag included
 
-function buildFootswitchPayload(favoritePresets) {
+function buildFootswitchPayload(pageTable, favoritePresets) {
   const encoder = new TextEncoder();
   const records = favoritePresets.map(p => {
     const nameBytes = encoder.encode(p.name);
@@ -663,9 +895,10 @@ function buildFootswitchPayload(favoritePresets) {
     return record;
   });
 
-  const totalLen = records.reduce((sum, r) => sum + r.length, 0);
+  const totalLen = records.reduce((sum, r) => sum + r.length, pageTable.length);
   const stream = new Uint8Array(totalLen);
-  let offset = 0;
+  stream.set(pageTable, 0);
+  let offset = pageTable.length;
   for (const r of records) {
     stream.set(r, offset);
     offset += r.length;
@@ -738,17 +971,22 @@ async function transferFavoritesToFootswitch() {
     return;
   }
 
-  const favoritePresets = favoritesOrder
-    .map(id => presets.find(p => p.id === id))
-    .filter(Boolean);
-
-  if (favoritePresets.length === 0) {
-    alert("No favorites to transfer - add some from the Patches list first.");
+  if (favoritePages.length === 0) {
+    alert("No favorite pages to transfer - add a page and some presets first.");
     return;
   }
 
+  const emptyPage = favoritePages.findIndex(page => page.length === 0);
+  if (emptyPage !== -1) {
+    alert(`Page ${emptyPage + 1} is empty. Add a preset to it or remove it first.`);
+    return;
+  }
+
+  const { presetIds, pageTable } = buildTransferLayout(favoritePages);
+  const favoritePresets = presetIds.map(id => presets.find(p => p.id === id));
+
   try {
-    const stream = buildFootswitchPayload(favoritePresets);
+    const stream = buildFootswitchPayload(pageTable, favoritePresets);
 
     const startMsg = new Uint8Array([
       FS_MSG_START,
@@ -757,7 +995,7 @@ async function transferFavoritesToFootswitch() {
     ]);
     await fsCharacteristic.writeValueWithResponse(startMsg);
 
-    log(`Sending ${favoritePresets.length} preset(s) to footswitch...`);
+    log(`Sending ${favoritePages.length} page(s), ${favoritePresets.length} preset(s) to footswitch...`);
     const payloadPerChunk = FOOTSWITCH_MAX_WRITE_LEN - 1; // -1 for the tag byte
     for (let i = 0; i < stream.length; i += payloadPerChunk) {
       const payload = stream.slice(i, i + payloadPerChunk);
@@ -778,7 +1016,7 @@ async function transferFavoritesToFootswitch() {
 
 function exportPresets() {
   const blob = new Blob(
-    [JSON.stringify({ presets, favoritesOrder }, null, 2)],
+    [JSON.stringify({ presets, favoritePages }, null, 2)],
     { type: "application/json" }
   );
   const url = URL.createObjectURL(blob);
@@ -800,12 +1038,12 @@ function importPresets(file) {
       }
       const state = normalizeState(parsed);
       presets = state.presets;
-      favoritesOrder = state.favoritesOrder;
+      favoritePages = state.favoritePages;
       sortPresets();
       saveState();
       activeIndex = null;
       renderPatches();
-      log(`Imported ${presets.length} preset(s), ${favoritesOrder.length} favorite(s).`);
+      log(`Imported ${presets.length} preset(s), ${favoritePages.length} favorite page(s).`);
     } catch (e) {
       alert("That doesn't look like a valid preset library file.");
     }
@@ -823,11 +1061,11 @@ function resetToDefaults() {
   }
 
   // Clone each entry rather than reusing the DEFAULT_PRESETS objects
-  // directly - presets get mutated in place (favorite toggling,
-  // overwriting), and DEFAULT_PRESETS needs to stay pristine so a
+  // directly - presets get mutated in place (overwriting), and
+  // DEFAULT_PRESETS needs to stay pristine so a
   // second reset later still produces the true original defaults.
   presets = ensureIds(DEFAULT_PRESETS.map(p => ({ ...p })));
-  favoritesOrder = [];
+  favoritePages = [];
   sortPresets();
   saveState();
   activeIndex = null;
@@ -858,6 +1096,11 @@ saveBtn.addEventListener("click", () => {
 exportBtn.addEventListener("click", exportPresets);
 resetBtn.addEventListener("click", resetToDefaults);
 transferBtn.addEventListener("click", transferFavoritesToFootswitch);
+
+addPageBtn.addEventListener("click", () => {
+  const updated = addPage(favoritePages);
+  if (updated) commitFavoritePages(updated);
+});
 
 connectFootswitchBtn.addEventListener("click", () => {
   if (fsDevice && fsDevice.gatt.connected) {

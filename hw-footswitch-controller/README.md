@@ -68,15 +68,19 @@ swapped.
 
 ## Storage
 
-- **LittleFS** (`/presets.bin`): the preset library itself. Only
-  written once per transfer, not per button press - flash wear isn't
-  a concern at that write frequency.
+- **LittleFS** (`/presets.bin`): the preset library and its page
+  layout. Each distinct preset is stored once, even when it is on
+  several pages. Only written once per transfer, not per button press -
+  flash wear isn't a concern at that write frequency. A file saved by
+  older firmware (no page layout) loads as pages of four presets.
 - **Preferences (NVS)**: the amp's remembered BLE address *and its
   address type* (public vs random - confirmed on real hardware that
   the Pulze Mini uses a random address; the firmware learns and
   persists this automatically the first time it scans, and defaults to
   guessing "random" first on a brand-new device), plus the last-active
-  preset index. The index write is deliberately debounced (see
+  footswitch (page and footswitch number). After a transfer, this is
+  used again only if that footswitch still holds a preset. The write is
+  deliberately debounced (see
   `LAST_USED_SETTLE_MS`) - only committed to flash after 5 seconds
   with no further footswitch change, so rapid switching doesn't wear
   flash or leave "last used" pointing at something only briefly passed
@@ -113,11 +117,11 @@ platform limitation.
 2. On the web app (phone or PC), tap **Connect to Footswitch** (in the
    Favorites panel) and pick "Pulze Footswitch" from the browser's
    device dialog.
-3. Curate your Favorites list on the web app in the order you want
-   presets assigned - **1st favorite -> footswitch 1 / page 1**, 2nd
-   -> footswitch 2 / page 1, 3rd -> footswitch 3 / page 1, 4th ->
-   footswitch 4 / page 1, 5th -> footswitch 1 / page 2, and so on
-   (`page = index / 4`, `footswitch = index % 4`).
+3. Build your pages on the web app: tap **Add page** for each page,
+   then put up to four presets on it. Cell FW1 of a page is footswitch
+   1, FW2 is footswitch 2, and so on. A page fills from FW1, so a page
+   with two presets leaves footswitches 3 and 4 empty (they do
+   nothing). The same preset can be on more than one page.
 4. Tap **Transfer to Footswitch**. The OLED switches to showing
    "Receiving data from app" for the duration of the transfer, then
    briefly shows how many presets were saved, then returns to the
@@ -144,11 +148,14 @@ gestures.
      app first.
 2. **Footswitches 1-4** recall the preset in that slot on the
    currently-viewed page - instantly, and the corresponding LED lights
-   up (the previous one turns off).
+   up (the previous one turns off). A footswitch with no preset on
+   that page does nothing.
 3. **Page Up / Page Down** move between pages without changing
    anything on the amp - just browsing.
 4. **Tap Connect again** to disconnect from the amp when you're done
    (e.g., to go build/update the library from the app again).
+   Switching the amp off also drops the link. Within about 2 seconds
+   the status line returns to `AMP: --`.
 
 ### Tuner
 
@@ -169,8 +176,8 @@ channel 0, value 100 = on, 0 = off):
 
 - **Top row**: amp connection status (`AMP OK` / `AMP: connecting` /
   `AMP: scanning` / `AMP: --`).
-- **Large inverted badge**: `PAGE <n>` - which page of 4 you're
-  currently viewing.
+- **Large inverted badge**: `PAGE <n>` - which page you're currently
+  viewing. The number of pages is set in the web app.
 - **Line below the badge**: the name of the active preset, if it's on
   the page you're currently viewing, or `TUNER` while the tuner is on.
   If the name is wider than the screen, it scrolls left automatically

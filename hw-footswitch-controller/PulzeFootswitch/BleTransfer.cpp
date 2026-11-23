@@ -158,15 +158,15 @@ class DataCallbacks : public NimBLECharacteristicCallbacks {
         Serial.printf("[BleTransfer] END, accumulated %u bytes for %u preset(s)\n",
                        (unsigned)rxLen, expectedCount);
 
-        static Preset parsed[256]; // matches PresetStore::MAX_PRESETS
-        int n = parseTransferBuffer(rxBuffer, rxLen, expectedCount, parsed, 256);
+        static ParsedLibrary parsed; // static: too large for the callback's stack
 
-        if (n < 0) {
+        if (!parseTransferBuffer(rxBuffer, rxLen, expectedCount, parsed)) {
           Serial.println("[BleTransfer] parse FAILED - transfer rejected, keeping existing library");
         } else {
-          bool ok = presetStore.replaceAll(parsed, (uint16_t)n);
-          Serial.printf("[BleTransfer] library replaced with %d preset(s): %s\n",
-                        n, ok ? "saved" : "SAVE FAILED");
+          bool ok = presetStore.replaceAll(parsed.presets, parsed.presetCount, parsed.layout);
+          Serial.printf("[BleTransfer] library replaced with %u preset(s) on %u page(s): %s\n",
+                        parsed.presetCount, parsed.layout.pageCount,
+                        ok ? "saved" : "SAVE FAILED");
         }
 
         transferInProgress = false;
